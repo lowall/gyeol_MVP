@@ -1,3 +1,4 @@
+import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useParams, useNavigate, Link } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 
@@ -1183,4 +1184,3 @@ function wrapText(ctx, text, maxWidth) {
   if (currentLine) lines.push(currentLine);
   return lines;
 }
-
