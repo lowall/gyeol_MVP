@@ -566,6 +566,7 @@ function OwnerReportView({ report, reportId, onReset }) {
         <NextPersonSection data={report.next_person} />
         <AvoidSection data={report.avoid} />
         <ClosingCard closing={report.closing} />
+        <NewServicesCard />
       </div>
       
       <div className="max-w-xl mx-auto px-6 pb-12 space-y-3">
@@ -723,6 +724,71 @@ function ClosingCard({ closing }) {
   );
 }
 
+// 카카오 채널 + 인스타 친구추가 블록
+const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xkUQbX';
+const INSTAGRAM_URL = 'https://instagram.com/gyeol_ur'; // TODO: 실제 핸들로 교체
+
+function NewServicesCard() {
+  return (
+    <div className="bg-gradient-to-br from-[#d4a374]/15 via-[#d4a374]/8 to-transparent border border-[#d4a374]/30 p-8 anim-fade-up" style={{ animationDelay: '750ms' }}>
+      <div className="text-center mb-6">
+        <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">COMING SOON</div>
+        <h2 className="font-display italic text-2xl text-[#f5ebd7] mb-4 leading-relaxed">
+          곧 새 결이 나와요
+        </h2>
+        <p className="font-myeongjo text-[#f5ebd7]/80 text-sm leading-relaxed">
+          곧 너의 직업 성향, 취미, 마음 결까지<br/>
+          새로운 결이 차례로 열려요.<br/>
+          가장 먼저 알고 싶으시다면,<br/>
+          친구추가해주세요. 서비스 나오면 알려드릴게요.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {/* 카카오 채널 */}
+        <a 
+          href={KAKAO_CHANNEL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full bg-[#FEE500] hover:bg-[#FFD700] transition-colors p-4 flex items-center gap-3 group"
+        >
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="#3C1E1E">
+              <path d="M12 3C6.48 3 2 6.58 2 11c0 2.85 1.86 5.35 4.66 6.79l-1.2 4.4c-.11.39.32.7.65.48l5.27-3.49c.2.01.41.02.62.02 5.52 0 10-3.58 10-8s-4.48-7.2-10-7.2z"/>
+            </svg>
+          </div>
+          <div className="text-left flex-1">
+            <div className="font-myeongjo text-[#3C1E1E] font-bold text-sm">카카오 채널 친구 추가</div>
+            <div className="text-[#3C1E1E]/70 text-xs font-myeongjo mt-0.5">새 결 출시되면 카톡으로 알림</div>
+          </div>
+          <div className="text-[#3C1E1E] group-hover:translate-x-1 transition-transform">→</div>
+        </a>
+
+        {/* 인스타그램 */}
+        <a 
+          href={INSTAGRAM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full bg-gradient-to-r from-purple-500/25 via-pink-500/25 to-orange-500/25 border border-[#d4a374]/40 hover:border-[#d4a374]/70 transition p-4 flex items-center gap-3 group"
+        >
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center flex-shrink-0">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="5"/>
+              <circle cx="12" cy="12" r="4"/>
+              <circle cx="17.5" cy="6.5" r="1" fill="white"/>
+            </svg>
+          </div>
+          <div className="text-left flex-1">
+            <div className="font-myeongjo text-[#f5ebd7] font-bold text-sm">인스타그램 팔로우</div>
+            <div className="text-[#f5ebd7]/60 text-xs font-myeongjo mt-0.5">@gyeol_kr · 결의 이야기 더 보기</div>
+          </div>
+          <div className="text-[#d4a374] group-hover:translate-x-1 transition-transform">→</div>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function Section({ title, subtitle, children, delay = 0, variant = 'default' }) {
   const borderColor = variant === 'danger' ? 'border-[#d99a9a]/25' : 'border-[#d4a374]/20';
   const subtitleColor = variant === 'danger' ? 'text-[#d99a9a]/60' : 'text-[#d4a374]/60';
@@ -870,7 +936,7 @@ function SharedReportPage() {
         </div>
 
         {/* 다시 한 번 CTA */}
-        <div className="pt-4 pb-12 anim-fade-up" style={{ animationDelay: '600ms' }}>
+        <div className="pt-4 anim-fade-up" style={{ animationDelay: '600ms' }}>
           <button
             onClick={() => navigate('/')}
             className="w-full bg-[#d4a374] text-[#3a2840] py-4 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors"
@@ -878,6 +944,11 @@ function SharedReportPage() {
             나의 결 만들러 가기
           </button>
         </div>
+
+        {/* 카카오 채널 + 인스타 */}
+        <NewServicesCard />
+        
+        <div className="pb-12" />
       </div>
     </div>
   );
@@ -923,13 +994,16 @@ function ShareModal({ report, reportId, reportContentRef, onClose }) {
   const shareLinkNative = () => {
     if (!shareUrl) return;
     if (navigator.share) {
+      // 모바일: native share sheet (카톡 직접 선택 가능)
       navigator.share({
         title: `"${report.headline}" · 결`,
         text: `나의 결을 읽어봤어`,
         url: shareUrl,
       }).catch(() => {});
     } else {
-      copyLink();
+      // PC: 링크 자동 복사 + 안내
+      navigator.clipboard.writeText(shareUrl);
+      alert('링크가 복사됐어!\n\n카톡 열어서 친구한테 붙여넣어줘.');
     }
   };
 
@@ -977,17 +1051,15 @@ ${shareUrl || ''}`;
         logging: false,
       });
       const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-      const file = new File([blob], `gyeol-full.png`, { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: '나의 결' });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = '나의-결.png';
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      // 무조건 다운로드
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '나의-결.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
       alert('이미지 생성에 실패했어. 다시 시도해줘');
@@ -1001,17 +1073,15 @@ ${shareUrl || ''}`;
       if (document.fonts?.ready) await document.fonts.ready;
       const canvas = type === 'story' ? renderStoryImage(report, shareUrl) : renderPostImage(report, shareUrl);
       const blob = await new Promise(r => canvas.toBlob(r, 'image/png', 1));
-      const file = new File([blob], `gyeol-${type}.png`, { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: '나의 결' });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `결-${type === 'story' ? '스토리' : '게시글'}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      // 무조건 다운로드 (사용자가 직접 인스타에 올리는 게 명확)
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `결-${type === 'story' ? '스토리' : '게시글'}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
       alert('이미지 생성에 실패했어');
