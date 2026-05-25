@@ -365,7 +365,7 @@ function ChatView({ messages, input, setInput, isAiTyping, sendMessage, scrollRe
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             placeholder={isAiTyping ? "결이 생각하는 중..." : "편하게 얘기해줘"}
             disabled={isAiTyping} rows={1}
-            className="flex-1 bg-[#f5ebd7]/8 text-[#f5ebd7] placeholder-[#f5ebd7]/40 px-4 py-3 text-sm outline-none border border-[#d4a374]/25 focus:border-[#d4a374]/60 transition-colors resize-none font-myeongjo"
+            className="flex-1 bg-[#2a1c34] text-[#f5ebd7] placeholder-[#f5ebd7]/45 px-4 py-3 text-sm outline-none border border-[#d4a374]/40 focus:border-[#d4a374] focus:bg-[#33223e] transition-all resize-none font-myeongjo caret-[#d4a374]"
             style={{ maxHeight: '120px' }} />
           <button onClick={sendMessage} disabled={isAiTyping || !input.trim()}
             className="bg-[#d4a374] text-[#3a2840] w-12 h-12 flex items-center justify-center disabled:opacity-30 hover:bg-[#e8c192] transition-colors flex-shrink-0">
