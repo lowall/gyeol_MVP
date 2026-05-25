@@ -1,7 +1,7 @@
 {
   "name": "gyeol",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vercel/analytics": "^1.4.1",
     "firebase-admin": "^12.7.0",
     "html2canvas": "^1.4.1",
     "nanoid": "^5.0.9",
