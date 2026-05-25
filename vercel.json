@@ -2,6 +2,15 @@
   "functions": {
     "api/chat.js": {
       "maxDuration": 60
+    },
+    "api/save-report.js": {
+      "maxDuration": 10
+    },
+    "api/get-report.js": {
+      "maxDuration": 10
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/r/:id", "destination": "/" }
+  ]
 }
