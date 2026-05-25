@@ -101,7 +101,14 @@ const REPORT_PROMPT = `다음은 사용자와 "결"이 나눈 대화야:
 - keywords/traits/warnings는 한 단어~짧은 구로 짧게
 - percentage는 30-95 사이 의미있는 숫자
 - 따뜻하되 정직하게. 비하/평가절하 X
-- JSON 외 어떤 텍스트도 X`;
+- content/reason은 짧게 (2문장 이내). 핵심만.
+
+JSON 형식 규칙 (매우 중요):
+- JSON 외 어떤 텍스트도 X
+- string 안에 따옴표(") 절대 쓰지 마. 강조하고 싶으면 그냥 쓰거나 단어로 풀어써.
+- string 안에 줄바꿈(\\n) 절대 X. 한 줄로 작성.
+- 마지막 항목 뒤에 쉼표(,) X (trailing comma 금지)
+- 모든 string은 큰따옴표(")로 감싸기. 한국어 따옴표(""'') 사용 X`;
 
 // ============= STYLES =============
 
@@ -264,25 +271,52 @@ function HomeContainer() {
       `${m.role === 'user' ? '사용자' : '결'}: ${m.content}`
     ).join('\n\n');
 
-    try {
+    // JSON 정리 헬퍼
+    const cleanAndParse = (text) => {
+      let cleaned = text.replace(/```json|```/g, '').trim();
+      // 첫 { 부터 마지막 } 까지만
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start !== -1 && end !== -1) {
+        cleaned = cleaned.substring(start, end + 1);
+      }
+      // trailing comma 제거
+      cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+      // 한국어 따옴표를 일반 따옴표로 (안전하게)
+      // 위험할 수 있으니 string value 내부만 처리하는 건 어려워서 일단 skip
+      return JSON.parse(cleaned);
+    };
+
+    // Prefilled assistant response로 안정성 ↑
+    const tryGenerate = async () => {
+      const userMessage = REPORT_PROMPT.replace('[대화내역]', convoText);
       const reportText = await callClaude(
-        [{ role: 'user', content: REPORT_PROMPT.replace('[대화내역]', convoText) }],
+        [
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: '{' }  // Claude가 무조건 JSON으로 시작
+        ],
         null, 2500
       );
-      const cleaned = reportText.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      // prefill 한 '{' 다시 붙이기
+      const fullText = '{' + reportText;
+      return cleanAndParse(fullText);
+    };
+
+    try {
+      let parsed;
+      try {
+        parsed = await tryGenerate();
+      } catch (err) {
+        console.warn('First attempt failed, retrying:', err);
+        // 1회 자동 재시도
+        parsed = await tryGenerate();
+      }
       setReport(parsed);
-      
-      // Firestore에 저장 (병렬, 실패해도 결과는 보여줌)
-      saveReport(parsed).then(id => {
-        if (id) setReportId(id);
-      });
-      
+      saveReport(parsed).then(id => { if (id) setReportId(id); });
       setReportReady(true);
     } catch (err) {
-      console.error(err);
-      setError('보고서 생성에 실패했어. 다시 시도해줘.');
-      setStage('chat');
+      console.error('Report generation failed:', err);
+      setStage('error_report');
     }
   };
 
@@ -305,6 +339,12 @@ function HomeContainer() {
   );
   if (stage === 'generating') return (
     <GeneratingView reportReady={reportReady} onComplete={() => setStage('report')} />
+  );
+  if (stage === 'error_report') return (
+    <ErrorReportView 
+      onRetry={() => generateReport(messages)} 
+      onReset={resetAll}
+    />
   );
   if (stage === 'report' && report) return (
     <OwnerReportView report={report} reportId={reportId} onReset={resetAll} />
@@ -469,6 +509,42 @@ function GeneratingView({ reportReady, onComplete }) {
           <span className="text-[#d4a374]/80 text-[10px] tracking-wider font-body">{Math.floor(progress)}%</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============= ERROR REPORT VIEW =============
+
+function ErrorReportView({ onRetry, onReset }) {
+  const [retrying, setRetrying] = useState(false);
+  
+  const handleRetry = async () => {
+    setRetrying(true);
+    await onRetry();
+    setRetrying(false);
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+      <div className="font-myeongjo text-7xl text-[#d4a374]/50 font-bold mb-6">結</div>
+      <h1 className="font-display italic text-2xl text-[#f5ebd7] mb-3">잠깐 결을 못 읽었어</h1>
+      <p className="text-[#f5ebd7]/70 text-sm font-myeongjo mb-10 max-w-xs leading-relaxed">
+        보고서 생성 중에 작은 문제가 생겼어.<br/>
+        다시 시도하면 잘 될 거야.
+      </p>
+      <button 
+        onClick={handleRetry}
+        disabled={retrying}
+        className="bg-[#d4a374] text-[#3a2840] px-10 py-3 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors mb-3 disabled:opacity-50"
+      >
+        {retrying ? '다시 시도하는 중...' : '다시 시도하기'}
+      </button>
+      <button 
+        onClick={onReset}
+        className="text-[#f5ebd7]/60 hover:text-[#f5ebd7]/90 transition text-xs tracking-wider py-2"
+      >
+        처음으로 돌아가기
+      </button>
     </div>
   );
 }
