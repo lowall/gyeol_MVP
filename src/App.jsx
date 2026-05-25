@@ -1,4 +1,3 @@
-import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useParams, useNavigate, Link } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 
@@ -176,6 +175,14 @@ function HomeContainer() {
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isAiTyping]);
+
+  // AI 응답 끝나면 자동으로 입력창 포커스 (사용자가 다시 클릭 안 하게)
+  useEffect(() => {
+    if (!isAiTyping && stage === 'chat') {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isAiTyping, stage]);
 
   const callClaude = async (msgs, systemPrompt = CHAT_SYSTEM_PROMPT, maxTokens = 1000) => {
     const body = { messages: msgs, max_tokens: maxTokens };
@@ -363,9 +370,9 @@ function ChatView({ messages, input, setInput, isAiTyping, sendMessage, scrollRe
         <div className="flex gap-2 items-end">
           <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder={isAiTyping ? "결이 생각하는 중..." : "편하게 얘기해줘"}
-            disabled={isAiTyping} rows={1}
-            className="flex-1 bg-[#f5ebd7]/8 text-[#f5ebd7] placeholder-[#f5ebd7]/40 px-4 py-3 text-sm outline-none border border-[#d4a374]/25 focus:border-[#d4a374]/60 transition-colors resize-none font-myeongjo"
+            placeholder={isAiTyping ? "결이 답하는 중... 미리 답 적어둬도 돼" : "편하게 얘기해줘"}
+            rows={1}
+            className="flex-1 bg-[#f5ebd7] text-[#1a1a1a] placeholder-[#888] px-4 py-3 text-sm outline-none border border-[#d4a374]/40 focus:border-[#d4a374] transition-colors resize-none font-myeongjo caret-[#d4a374]"
             style={{ maxHeight: '120px' }} />
           <button onClick={sendMessage} disabled={isAiTyping || !input.trim()}
             className="bg-[#d4a374] text-[#3a2840] w-12 h-12 flex items-center justify-center disabled:opacity-30 hover:bg-[#e8c192] transition-colors flex-shrink-0">
@@ -1176,3 +1183,4 @@ function wrapText(ctx, text, maxWidth) {
   if (currentLine) lines.push(currentLine);
   return lines;
 }
+
