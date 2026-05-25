@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useParams, useNavigate, Link } from 'react-router-dom';
 import html2canvas from 'html2canvas';
+import { events } from './lib/analytics';
 
 // ============= PROMPTS =============
 
@@ -227,6 +228,7 @@ function HomeContainer() {
   };
 
   const startConversation = async () => {
+    events.startConversation();
     setStage('chat');
     setIsAiTyping(true);
     try {
@@ -243,6 +245,7 @@ function HomeContainer() {
     if (!input.trim() || isAiTyping) return;
     const userMsg = { role: 'user', content: input.trim() };
     const newMessages = [...messages, userMsg];
+    events.sendMessage(newMessages.length);
     setMessages(newMessages);
     setInput('');
     setIsAiTyping(true);
@@ -308,14 +311,22 @@ function HomeContainer() {
         parsed = await tryGenerate();
       } catch (err) {
         console.warn('First attempt failed, retrying:', err);
+        events.reportError('first_attempt_failed');
         // 1회 자동 재시도
         parsed = await tryGenerate();
       }
       setReport(parsed);
-      saveReport(parsed).then(id => { if (id) setReportId(id); });
+      events.reportGenerated(parsed.attachment_style?.type || 'unknown');
+      saveReport(parsed).then(id => { 
+        if (id) {
+          setReportId(id);
+          events.reportSaved();
+        }
+      });
       setReportReady(true);
     } catch (err) {
       console.error('Report generation failed:', err);
+      events.reportError('final_failed');
       setStage('error_report');
     }
   };
@@ -570,7 +581,7 @@ function OwnerReportView({ report, reportId, onReset }) {
       </div>
       
       <div className="max-w-xl mx-auto px-6 pb-12 space-y-3">
-        <button onClick={() => setShowShareModal(true)}
+        <button onClick={() => { events.openShareModal(); setShowShareModal(true); }}
           className="w-full bg-[#d4a374] text-[#3a2840] py-4 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
           저장하고 공유하기
         </button>
@@ -726,9 +737,9 @@ function ClosingCard({ closing }) {
 
 // 카카오 채널 + 인스타 친구추가 블록
 const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xkUQbX';
-const INSTAGRAM_URL = 'https://instagram.com/gyeol_ur'; // TODO: 실제 핸들로 교체
+const INSTAGRAM_URL = 'https://instagram.com/gyeol_kr'; // TODO: 실제 핸들로 교체
 
-function NewServicesCard() {
+function NewServicesCard({ source = 'owner' }) {
   return (
     <div className="bg-gradient-to-br from-[#d4a374]/15 via-[#d4a374]/8 to-transparent border border-[#d4a374]/30 p-8 anim-fade-up" style={{ animationDelay: '750ms' }}>
       <div className="text-center mb-6">
@@ -750,6 +761,7 @@ function NewServicesCard() {
           href={KAKAO_CHANNEL_URL}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => events.clickKakaoChannel(source)}
           className="block w-full bg-[#FEE500] hover:bg-[#FFD700] transition-colors p-4 flex items-center gap-3 group"
         >
           <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
@@ -769,6 +781,7 @@ function NewServicesCard() {
           href={INSTAGRAM_URL}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => events.clickInstagram(source)}
           className="block w-full bg-gradient-to-r from-purple-500/25 via-pink-500/25 to-orange-500/25 border border-[#d4a374]/40 hover:border-[#d4a374]/70 transition p-4 flex items-center gap-3 group"
         >
           <div className="w-10 h-10 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center flex-shrink-0">
@@ -823,6 +836,7 @@ function SharedReportPage() {
       .then(data => {
         setReport(data.report);
         setLoading(false);
+        events.viewSharedReport();
         // 헤드라인을 페이지 title에 반영 (카톡 공유시 미리보기에도 영향)
         document.title = `"${data.report.headline}" · 결`;
       })
@@ -892,7 +906,7 @@ function SharedReportPage() {
             너의 결은<br/>어떤 모양일까?
           </p>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => { events.clickCTAFromShared(); navigate('/'); }}
             className="bg-[#d4a374] text-[#3a2840] px-10 py-3 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors mt-4"
           >
             나의 결 보러가기
@@ -938,7 +952,7 @@ function SharedReportPage() {
         {/* 다시 한 번 CTA */}
         <div className="pt-4 anim-fade-up" style={{ animationDelay: '600ms' }}>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => { events.clickCTAFromShared(); navigate('/'); }}
             className="w-full bg-[#d4a374] text-[#3a2840] py-4 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors"
           >
             나의 결 만들러 가기
@@ -946,7 +960,7 @@ function SharedReportPage() {
         </div>
 
         {/* 카카오 채널 + 인스타 */}
-        <NewServicesCard />
+        <NewServicesCard source="shared" />
         
         <div className="pb-12" />
       </div>
@@ -993,6 +1007,7 @@ function ShareModal({ report, reportId, reportContentRef, onClose }) {
 
   const shareLinkNative = () => {
     if (!shareUrl) return;
+    events.shareKakao();
     if (navigator.share) {
       // 모바일: native share sheet (카톡 직접 선택 가능)
       navigator.share({
@@ -1035,6 +1050,7 @@ ${report.patterns.map((p, i) => `   0${i+1} ${p.title}\n      ${p.content}`).joi
 ${shareUrl || ''}`;
 
     navigator.clipboard.writeText(text);
+    events.copyText();
     setCopiedText(true);
     setTimeout(() => setCopiedText(false), 2000);
   };
@@ -1042,6 +1058,7 @@ ${shareUrl || ''}`;
   const downloadFullImage = async () => {
     if (!reportContentRef?.current) return;
     setBusy(true);
+    events.downloadFullReport();
     try {
       if (document.fonts?.ready) await document.fonts.ready;
       const canvas = await html2canvas(reportContentRef.current, {
@@ -1069,6 +1086,7 @@ ${shareUrl || ''}`;
 
   const downloadCardImage = async (type) => {
     setBusy(true);
+    events.downloadImage(type);
     try {
       if (document.fonts?.ready) await document.fonts.ready;
       const canvas = type === 'story' ? renderStoryImage(report, shareUrl) : renderPostImage(report, shareUrl);
