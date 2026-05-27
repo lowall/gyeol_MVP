@@ -15,7 +15,8 @@ async function callClaude(messages, system, max_tokens = 1500) {
   });
   if (!res.ok) throw new Error(`API error: ${await res.text()}`);
   const data = await res.json();
-  return data.content?.[0]?.text || '';
+  // 여러 응답 형식 호환
+  return data.text || data.content?.[0]?.text || data.message || '';
 }
 
 async function saveReport(report, category) {
@@ -147,12 +148,29 @@ function Landing() {
   const completedMap = {};
   completed.forEach(c => { completedMap[c.category] = c.reportId; });
   const vault = getVaultInfo();
+  const [packageModal, setPackageModal] = useState(null);
   
   useEffect(() => { events.viewLanding(); }, []);
 
   const handleCategoryClick = (categoryId) => {
     events.clickCategory(categoryId);
     navigate(`/c/${categoryId}`);
+  };
+
+  const handlePackageClick = (pkg) => {
+    events.clickPackage(pkg.id);
+    setPackageModal(pkg);
+  };
+
+  const handlePackageConfirm = (pkg) => {
+    // 패키지에 포함된 모든 유료 카테고리 해제
+    pkg.includes.forEach(catId => {
+      const cat = CATEGORIES[catId];
+      if (cat && !cat.free) addPurchased(catId);
+    });
+    setPackageModal(null);
+    // 패키지 첫 카테고리로 이동 (또는 랜딩에 머무름)
+    navigate(`/c/${pkg.includes[0] || 'love'}`);
   };
 
   return (
@@ -203,7 +221,7 @@ function Landing() {
         {/* 패키지 추천 */}
         <div className="mb-12 anim-fade-up" style={{ animationDelay: '150ms' }}>
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3 text-center">PACKAGE</div>
-          <PackageCard pkg={PACKAGES.all} highlighted />
+          <PackageCard pkg={PACKAGES.all} highlighted onClick={() => handlePackageClick(PACKAGES.all)} />
         </div>
 
         {/* 나머지 카테고리 */}
@@ -227,13 +245,21 @@ function Landing() {
 
         {/* 취준생 패키지 */}
         <div className="mt-8 anim-fade-up" style={{ animationDelay: '700ms' }}>
-          <PackageCard pkg={PACKAGES.career_pack} />
+          <PackageCard pkg={PACKAGES.career_pack} onClick={() => handlePackageClick(PACKAGES.career_pack)} />
         </div>
 
         <div className="text-center text-[#f5ebd7]/40 text-xs mt-12 font-myeongjo">
           연애 결은 무료로 체험 가능해요
         </div>
       </div>
+
+      {packageModal && (
+        <PackagePaymentModal 
+          pkg={packageModal} 
+          onConfirm={() => handlePackageConfirm(packageModal)} 
+          onCancel={() => setPackageModal(null)} 
+        />
+      )}
     </div>
   );
 }
@@ -272,12 +298,7 @@ function FeaturedCategoryCard({ category, reportId, onClick, onViewResult }) {
   );
 }
 
-function PackageCard({ pkg, highlighted }) {
-  const bg = highlighted 
-    ? 'bg-gradient-to-br from-[#d4a374]/20 to-[#d4a374]/5 border-[#d4a374]/40' 
-    : 'bg-[#f5ebd7]/5 border-[#d4a374]/15';
-  return (
-    <div className={`${bg} border p-6 relative`}>
+function PackageCard({ pkg, highlighted, onClick }) {
       {pkg.badge && (
         <div className="absolute -top-2 left-6 bg-[#d4a374] text-[#3a2840] px-3 py-0.5 text-[10px] tracking-wider font-bold">
           {pkg.badge}
@@ -298,7 +319,103 @@ function PackageCard({ pkg, highlighted }) {
           )}
         </div>
       </div>
-      <div className="text-[#f5ebd7]/60 text-xs leading-relaxed font-myeongjo">{pkg.description}</div>
+      <div className="text-[#f5ebd7]/60 text-xs leading-relaxed font-myeongjo mb-3">{pkg.description}</div>
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-[#d4a374] text-xs font-bold">{pkg.includes.length}개 결 한번에</span>
+        <span className="text-[#d4a374]">→</span>
+      </div>
+    </button>
+  );
+}
+
+// 패키지 결제 모달
+function PackagePaymentModal({ pkg, onConfirm, onCancel }) {
+  const [confirming, setConfirming] = useState(false);
+  
+  useEffect(() => { events.openPaymentModal(pkg.id, pkg.price); }, []);
+
+  const handleConfirm = () => {
+    events.confirmPayment(pkg.id, pkg.price);
+    setConfirming(true);
+    setTimeout(() => onConfirm(), 1500);
+  };
+  const handleCancel = () => { events.cancelPayment(pkg.id); onCancel(); };
+
+  if (confirming) return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center px-6">
+      <div className="text-center anim-fade-up">
+        <div className="text-[#d4a374] text-4xl mb-4">✓</div>
+        <div className="font-display italic text-xl text-[#f5ebd7]">패키지 활성화 중...</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center px-6" onClick={handleCancel}>
+      <div className="max-w-sm w-full bg-[#3a2840] border border-[#d4a374]/30 p-8 anim-fade-up" onClick={e => e.stopPropagation()}>
+        <div className="text-center mb-6">
+          <div className="text-[#d4a374]/60 text-[10px] tracking-[0.3em] mb-1">{pkg.nameEn}</div>
+          <h2 className="font-display italic text-2xl text-[#f5ebd7] mb-2">{pkg.name}</h2>
+          <p className="text-[#f5ebd7]/60 text-xs font-myeongjo">{pkg.description}</p>
+        </div>
+        
+        <div className="bg-[#d4a374]/8 p-3 mb-4">
+          <div className="text-[#d4a374]/70 text-[10px] tracking-[0.3em] mb-2">포함된 결</div>
+          <div className="space-y-1">
+            {pkg.includes.map(catId => {
+              const cat = CATEGORIES[catId];
+              if (!cat) return null;
+              return (
+                <div key={catId} className="flex items-center justify-between text-xs">
+                  <span className="font-myeongjo text-[#f5ebd7]/80">{cat.hanja} {cat.name}</span>
+                  <span className="text-[#d4a374]/60">{cat.priceLabel}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="border-t border-b border-[#d4a374]/20 py-4 mb-6">
+          {pkg.originalPrice && (
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[#f5ebd7]/50 text-xs font-myeongjo">개별 합계</span>
+              <span className="text-[#f5ebd7]/40 text-sm line-through">{pkg.originalPrice.toLocaleString()}원</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center">
+            <span className="text-[#f5ebd7] text-sm font-myeongjo font-bold">패키지 가격</span>
+            <span className="font-myeongjo text-[#d4a374] text-2xl font-bold">{pkg.priceLabel}</span>
+          </div>
+          {pkg.discount && (
+            <div className="text-right text-[#d4a374]/80 text-[10px] mt-1">{pkg.discount}% 할인</div>
+          )}
+        </div>
+
+        <div className="bg-[#d4a374]/8 border border-[#d4a374]/20 p-4 mb-6">
+          <p className="text-[#f5ebd7]/80 text-xs leading-relaxed font-myeongjo">
+            💛 <strong className="text-[#d4a374]">베타 무료 체험 중</strong><br/>
+            결제 시스템 준비 중이라 지금은 무료로 진행돼요.<br/>
+            정식 출시되면 카카오 채널로 알려드릴게요.
+          </p>
+        </div>
+
+        <button onClick={handleConfirm}
+          className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors mb-2">
+          무료로 모든 결 받기
+        </button>
+        <button onClick={handleCancel}
+          className="w-full text-[#f5ebd7]/60 hover:text-[#f5ebd7]/90 py-2 text-xs tracking-wider">
+          취소
+        </button>
+        
+        <div className="text-center text-[#f5ebd7]/40 text-[10px] mt-6 font-myeongjo">
+          <Link to="/terms" className="hover:text-[#f5ebd7]/60">이용약관</Link>
+          <span className="mx-2">·</span>
+          <Link to="/privacy" className="hover:text-[#f5ebd7]/60">개인정보처리방침</Link>
+          <span className="mx-2">·</span>
+          <Link to="/refund" className="hover:text-[#f5ebd7]/60">환불정책</Link>
+        </div>
+      </div>
     </div>
   );
 }
@@ -384,7 +501,7 @@ function CategoryFlow() {
       const greeting = await callClaude(
         [{ role: 'user', content: '안녕' }],
         getChatPrompt(category),
-        500
+        1000
       );
       setMessages([{ role: 'assistant', content: greeting }]);
     } catch (err) {
