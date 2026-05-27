@@ -11,6 +11,10 @@
     }
   },
   "rewrites": [
-    { "source": "/r/:id", "destination": "/" }
+    { "source": "/r/:id", "destination": "/" },
+    { "source": "/c/:category", "destination": "/" },
+    { "source": "/terms", "destination": "/" },
+    { "source": "/privacy", "destination": "/" },
+    { "source": "/refund", "destination": "/" }
   ]
 }
