@@ -8,11 +8,18 @@
     },
     "api/get-report.js": {
       "maxDuration": 10
+    },
+    "api/save-to-vault.js": {
+      "maxDuration": 15
+    },
+    "api/get-vault.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [
     { "source": "/r/:id", "destination": "/" },
     { "source": "/c/:category", "destination": "/" },
+    { "source": "/my/:userId", "destination": "/" },
     { "source": "/terms", "destination": "/" },
     { "source": "/privacy", "destination": "/" },
     { "source": "/refund", "destination": "/" }
