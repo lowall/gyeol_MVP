@@ -1,0 +1,132 @@
+// 카테고리 정의 - 6개 결의 메타데이터
+
+export const CATEGORIES = {
+  love: {
+    id: 'love',
+    name: '연애 결',
+    nameEn: 'LOVE',
+    hanja: '戀',
+    tagline: '너의 끌림과 연애 패턴',
+    description: '살면서 끌렸던 사람들의 이야기 속에 너의 진짜 연애 결이 있어요',
+    price: 0,
+    priceLabel: '무료',
+    free: true,
+    icon: '💕',
+    color: '#d4a374',
+    estimatedMinutes: 8,
+    active: true,
+  },
+  friend: {
+    id: 'friend',
+    name: '친구 결',
+    nameEn: 'FRIEND',
+    hanja: '友',
+    tagline: '너의 인간관계 패턴',
+    description: '친구들 사이에서 너가 어떤 사람인지, 무엇이 너를 상처입히는지',
+    price: 2900,
+    priceLabel: '2,900원',
+    free: false,
+    icon: '🤝',
+    color: '#a8c4a2',
+    estimatedMinutes: 7,
+    active: true,
+  },
+  career: {
+    id: 'career',
+    name: '진로 결',
+    nameEn: 'CAREER',
+    hanja: '路',
+    tagline: '너의 진로 막힘과 다음 한 걸음',
+    description: '왜 진짜 막혀있는지, 어디로 가야 하는지',
+    price: 2900,
+    priceLabel: '2,900원',
+    free: false,
+    icon: '🧭',
+    color: '#b8a3d4',
+    estimatedMinutes: 8,
+    active: true,
+  },
+  work: {
+    id: 'work',
+    name: '직무 결',
+    nameEn: 'WORK',
+    hanja: '業',
+    tagline: '너의 직무 강점과 자소서 후크',
+    description: '진짜 강점, 맞는 일 스타일, 자소서 핵심 문장까지',
+    price: 2900,
+    priceLabel: '2,900원',
+    free: false,
+    icon: '⚒️',
+    color: '#e8a87c',
+    estimatedMinutes: 8,
+    active: true,
+  },
+  burnout: {
+    id: 'burnout',
+    name: '번아웃 결',
+    nameEn: 'BURNOUT',
+    hanja: '燒',
+    tagline: '너의 소진 상태와 회복의 방향',
+    description: 'MBI 기반. 정서적 소진, 냉소, 효능감 저하 3축 분석',
+    price: 2900,
+    priceLabel: '2,900원',
+    free: false,
+    icon: '🕯️',
+    color: '#c97f7f',
+    estimatedMinutes: 7,
+    active: true,
+  },
+  integrated: {
+    id: 'integrated',
+    name: '종합 결',
+    nameEn: 'INTEGRATED',
+    hanja: '結',
+    tagline: '여러 결을 관통하는 너의 본질',
+    description: '2개 이상의 결을 받은 후 활성화. 카테고리를 관통하는 통합 인사이트',
+    price: 9900,
+    priceLabel: '9,900원',
+    free: false,
+    icon: '✦',
+    color: '#d4a374',
+    estimatedMinutes: 5,
+    active: true,
+    requiresMinReports: 2,
+  },
+};
+
+// 패키지
+export const PACKAGES = {
+  all: {
+    id: 'all',
+    name: '모든 결 패키지',
+    nameEn: 'FULL PACK',
+    description: '연애 + 친구 + 진로 + 직무 + 번아웃 + 종합 결',
+    price: 9900,
+    priceLabel: '9,900원',
+    originalPrice: 14500,
+    discount: 32,
+    badge: '추천',
+    includes: ['love', 'friend', 'career', 'work', 'burnout', 'integrated'],
+  },
+  career_pack: {
+    id: 'career_pack',
+    name: '취준생 패키지',
+    nameEn: 'CAREER PACK',
+    description: '진로 + 직무 + 자소서 핵심 문장',
+    price: 4900,
+    priceLabel: '4,900원',
+    originalPrice: 5800,
+    discount: 15,
+    badge: null,
+    includes: ['career', 'work'],
+  },
+};
+
+// 카테고리 ID 배열 (표시 순서)
+export const CATEGORY_ORDER = ['love', 'friend', 'career', 'work', 'burnout', 'integrated'];
+
+// 무료 카테고리만
+export const FREE_CATEGORIES = Object.values(CATEGORIES).filter(c => c.free);
+
+// 유료 카테고리만
+export const PAID_CATEGORIES = Object.values(CATEGORIES).filter(c => !c.free);
