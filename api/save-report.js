@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { report } = req.body;
+    const { report, category } = req.body;
 
     if (!report || !report.headline) {
       return res.status(400).json({ error: 'Invalid report data' });
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
 
     await db.collection('reports').doc(id).set({
       report,
+      category: category || 'love',
       createdAt: now,
       expiresAt,
       viewCount: 0,

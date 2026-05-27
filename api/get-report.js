@@ -43,6 +43,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       report: data.report,
+      category: data.category || 'love',
       createdAt: data.createdAt,
       expiresAt: data.expiresAt,
     });
