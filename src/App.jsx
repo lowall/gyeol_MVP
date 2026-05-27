@@ -299,6 +299,11 @@ function FeaturedCategoryCard({ category, reportId, onClick, onViewResult }) {
 }
 
 function PackageCard({ pkg, highlighted, onClick }) {
+  const bg = highlighted 
+    ? 'bg-gradient-to-br from-[#d4a374]/20 to-[#d4a374]/5 border-[#d4a374]/40' 
+    : 'bg-[#f5ebd7]/5 border-[#d4a374]/15';
+  return (
+    <button onClick={onClick} className={`${bg} border p-6 relative w-full text-left hover:border-[#d4a374]/70 transition`}>
       {pkg.badge && (
         <div className="absolute -top-2 left-6 bg-[#d4a374] text-[#3a2840] px-3 py-0.5 text-[10px] tracking-wider font-bold">
           {pkg.badge}
