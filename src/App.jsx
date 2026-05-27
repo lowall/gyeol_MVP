@@ -103,6 +103,56 @@ function canAccess(category) {
   return getPurchased().includes(category);
 }
 
+// 사용자 프로필 (이름, 나이대) - 카테고리 간 공유
+const PROFILE_KEY = 'gyeol_profile';
+
+function getUserProfile() {
+  if (typeof window === 'undefined') return {};
+  try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveUserProfile(profile) {
+  const existing = getUserProfile();
+  const merged = { ...existing, ...profile };
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(merged));
+}
+
+// AI 응답에서 이름/나이대 추출 (간단한 휴리스틱)
+function extractProfileFromMessages(messages) {
+  const userMessages = messages.filter(m => m.role === 'user');
+  const profile = {};
+  
+  // 첫 2-3개 사용자 메시지에서 이름과 나이대 추출 시도
+  for (let i = 0; i < Math.min(userMessages.length, 4); i++) {
+    const content = userMessages[i].content.trim();
+    
+    // 이름: 2-5글자 한글, 다른 패턴 적게 (정확한 매칭 어려우니 짧은 첫 답변에서 추출)
+    if (!profile.name && content.length <= 10) {
+      // 단순 이름 패턴 (예: "수민", "여수민", "수민이야" 등)
+      const nameMatch = content.match(/^([가-힣]{2,5})(이?야|입니다|이에요|예요)?$/);
+      if (nameMatch) profile.name = nameMatch[1];
+    }
+    
+    // 나이대 추출
+    if (!profile.ageGroup) {
+      const ageMatch = content.match(/(\d{2})\s*살|(\d{2})대|이?십\s*대|이?십\s*초|이?십\s*중|이?십\s*후|삼십\s*대/);
+      if (ageMatch) {
+        const num = parseInt(ageMatch[1] || ageMatch[2]);
+        if (num >= 15 && num <= 60) {
+          if (num < 25) profile.ageGroup = '20대 초반';
+          else if (num < 30) profile.ageGroup = '20대 후반';
+          else if (num < 35) profile.ageGroup = '30대 초반';
+          else if (num < 40) profile.ageGroup = '30대 후반';
+          else profile.ageGroup = '40대';
+        } else if (content.includes('이십')) profile.ageGroup = '20대';
+        else if (content.includes('삼십')) profile.ageGroup = '30대';
+      }
+    }
+  }
+  
+  return profile;
+}
+
 // ============= STYLES =============
 
 const FontStyles = () => (
@@ -503,9 +553,19 @@ function CategoryFlow() {
     setStage('chat');
     setIsAiTyping(true);
     try {
+      // 기존 사용자 프로필 있으면 시스템 프롬프트에 주입
+      const profile = getUserProfile();
+      let systemPrompt = getChatPrompt(category);
+      if (profile.name || profile.ageGroup) {
+        const profileInfo = [];
+        if (profile.name) profileInfo.push(`이름: ${profile.name}`);
+        if (profile.ageGroup) profileInfo.push(`나이대: ${profile.ageGroup}`);
+        systemPrompt += `\n\n== 알려진 사용자 정보 ==\n${profileInfo.join('\n')}\n위 정보는 이미 알고 있으니, 첫 인사부터 이름을 부르면서 자연스럽게 시작해. "안녕 ${profile.name || ''}!" 같이. 이름이나 나이 다시 묻지 마. 바로 본격적인 ${CATEGORIES[category].name} 주제로 진입해.`;
+      }
+      
       const greeting = await callClaude(
         [{ role: 'user', content: '안녕' }],
-        getChatPrompt(category),
+        systemPrompt,
         1000
       );
       setMessages([{ role: 'assistant', content: greeting }]);
@@ -527,8 +587,24 @@ function CategoryFlow() {
     setIsAiTyping(true);
     setError(null);
     
+    // 사용자 프로필 추출 시도 (이름, 나이대)
+    const extractedProfile = extractProfileFromMessages(newMessages);
+    if (extractedProfile.name || extractedProfile.ageGroup) {
+      saveUserProfile(extractedProfile);
+    }
+    
     try {
-      const response = await callClaude(newMessages, getChatPrompt(category));
+      // 시스템 프롬프트에 프로필 주입
+      const profile = getUserProfile();
+      let systemPrompt = getChatPrompt(category);
+      if (profile.name || profile.ageGroup) {
+        const profileInfo = [];
+        if (profile.name) profileInfo.push(`이름: ${profile.name}`);
+        if (profile.ageGroup) profileInfo.push(`나이대: ${profile.ageGroup}`);
+        systemPrompt += `\n\n== 알려진 사용자 정보 ==\n${profileInfo.join('\n')}\n위 정보는 이미 알고 있어. 다시 묻지 마.`;
+      }
+      
+      const response = await callClaude(newMessages, systemPrompt);
       const hasReady = response.includes('[READY_FOR_REPORT]');
       const cleaned = response.replace('[READY_FOR_REPORT]', '').trim();
       const finalMessages = [...newMessages, { role: 'assistant', content: cleaned }];
@@ -726,10 +802,9 @@ function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage
         <div className="flex gap-2 items-end">
           <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder={isAiTyping ? "결이 답하는 중..." : "자세히 적어줄수록 결을 깊이 읽을 수 있어"}
-            disabled={isAiTyping}
+            placeholder={isAiTyping ? "결이 답하는 중... 미리 답 적어둬도 돼" : "자세히 적어줄수록 결을 깊이 읽을 수 있어"}
             rows={1}
-            className="flex-1 bg-[#f5ebd7]/8 border border-[#d4a374]/20 px-4 py-3 text-[#f5ebd7] placeholder-[#f5ebd7]/30 text-sm focus:outline-none focus:border-[#d4a374]/50 resize-none font-myeongjo" />
+            className="flex-1 bg-[#f5ebd7] border border-[#d4a374]/40 px-4 py-3 text-[#3a2840] placeholder-[#3a2840]/40 text-sm focus:outline-none focus:border-[#d4a374] resize-none font-myeongjo" />
           <button onClick={sendMessage} disabled={!input.trim() || isAiTyping}
             className="bg-[#d4a374] text-[#3a2840] px-5 py-3 font-medium text-sm hover:bg-[#e8c192] transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
             보내기
@@ -962,7 +1037,7 @@ function VaultModal({ category, reportId, onClose }) {
               onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="your@email.com"
               disabled={loading}
-              className="w-full bg-[#f5ebd7]/8 border border-[#d4a374]/30 px-4 py-3 text-[#f5ebd7] placeholder-[#f5ebd7]/30 text-sm focus:outline-none focus:border-[#d4a374]/60 mb-3 font-body" />
+              className="w-full bg-[#f5ebd7] border border-[#d4a374]/40 px-4 py-3 text-[#3a2840] placeholder-[#3a2840]/40 text-sm focus:outline-none focus:border-[#d4a374] mb-3 font-body" />
             {error && <div className="text-red-300/80 text-xs mb-3 font-myeongjo">{error}</div>}
             <button onClick={handleSubmit} disabled={loading || !email.trim()}
               className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors disabled:opacity-50">
