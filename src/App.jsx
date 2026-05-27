@@ -13,10 +13,7 @@ async function callClaude(messages, system, max_tokens = 1500) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages, system, max_tokens }),
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`API error: ${err}`);
-  }
+  if (!res.ok) throw new Error(`API error: ${await res.text()}`);
   const data = await res.json();
   return data.content?.[0]?.text || '';
 }
@@ -37,16 +34,33 @@ async function saveReport(report, category) {
   }
 }
 
-// ============= LOCAL STORAGE - 결제/완료 카테고리 추적 =============
+async function saveToVault(email, reportId, category) {
+  try {
+    const res = await fetch('/api/save-to-vault', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, reportId, category }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed');
+    }
+    return await res.json();
+  } catch (err) {
+    console.error('Vault save failed:', err);
+    throw err;
+  }
+}
+
+// ============= LOCAL STORAGE =============
 
 const STORAGE_KEY = 'gyeol_purchased';
 const COMPLETED_KEY = 'gyeol_completed';
+const VAULT_KEY = 'gyeol_vault'; // 사용자 vault 정보 (email, userId)
 
 function getPurchased() {
   if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
 }
 
 function addPurchased(category) {
@@ -57,9 +71,7 @@ function addPurchased(category) {
 
 function getCompleted() {
   if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(COMPLETED_KEY) || '[]');
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(COMPLETED_KEY) || '[]'); } catch { return []; }
 }
 
 function addCompleted(category, reportId) {
@@ -67,18 +79,26 @@ function addCompleted(category, reportId) {
   const existing = list.find(c => c.category === category);
   if (existing) {
     existing.reportId = reportId;
+    existing.completedAt = Date.now();
   } else {
     list.push({ category, reportId, completedAt: Date.now() });
   }
   localStorage.setItem(COMPLETED_KEY, JSON.stringify(list));
 }
 
-// 카테고리 사용 가능 여부 (무료 또는 결제됨)
+function getVaultInfo() {
+  if (typeof window === 'undefined') return null;
+  try { return JSON.parse(localStorage.getItem(VAULT_KEY) || 'null'); } catch { return null; }
+}
+
+function saveVaultInfo(info) {
+  localStorage.setItem(VAULT_KEY, JSON.stringify(info));
+}
+
 function canAccess(category) {
   const cat = CATEGORIES[category];
   if (!cat) return false;
   if (cat.free) return true;
-  if (cat.requiresMinReports && getCompleted().length < cat.requiresMinReports) return false;
   return getPurchased().includes(category);
 }
 
@@ -108,6 +128,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/c/:category" element={<CategoryFlow />} />
           <Route path="/r/:id" element={<SharedReportPage />} />
+          <Route path="/my/:userId" element={<VaultPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/refund" element={<RefundPage />} />
@@ -123,11 +144,11 @@ export default function App() {
 function Landing() {
   const navigate = useNavigate();
   const completed = getCompleted();
-  const completedIds = completed.map(c => c.category);
+  const completedMap = {};
+  completed.forEach(c => { completedMap[c.category] = c.reportId; });
+  const vault = getVaultInfo();
   
-  useEffect(() => {
-    events.viewLanding();
-  }, []);
+  useEffect(() => { events.viewLanding(); }, []);
 
   const handleCategoryClick = (categoryId) => {
     events.clickCategory(categoryId);
@@ -138,7 +159,7 @@ function Landing() {
     <div className="min-h-screen px-6 py-16">
       <div className="max-w-2xl mx-auto">
         {/* 헤더 */}
-        <div className="text-center mb-16 anim-fade-up">
+        <div className="text-center mb-12 anim-fade-up">
           <div className="text-[#d4a374]/50 text-[10px] tracking-[0.5em] mb-6 font-body">GYEOL · 結</div>
           <div className="font-myeongjo text-[100px] leading-none text-[#f5ebd7] mb-2 font-bold">결</div>
           <div className="my-10 flex items-center justify-center gap-3">
@@ -154,26 +175,50 @@ function Landing() {
           </p>
         </div>
 
+        {/* 보관함 바로가기 */}
+        {vault?.userId && (
+          <div className="mb-8 anim-fade-up" style={{ animationDelay: '50ms' }}>
+            <button onClick={() => navigate(`/my/${vault.userId}`)}
+              className="w-full bg-[#d4a374]/10 hover:bg-[#d4a374]/20 border border-[#d4a374]/30 transition p-4 flex items-center justify-between">
+              <div className="text-left">
+                <div className="text-[#d4a374] text-[10px] tracking-[0.3em] mb-1">MY VAULT</div>
+                <div className="font-myeongjo text-[#f5ebd7] text-sm font-bold">내 결 보관함</div>
+              </div>
+              <div className="text-[#d4a374]">→</div>
+            </button>
+          </div>
+        )}
+
+        {/* 🌟 연애 결 - 무료 후크 (가장 위) */}
+        <div className="mb-6 anim-fade-up" style={{ animationDelay: '100ms' }}>
+          <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3 text-center">FREE</div>
+          <FeaturedCategoryCard 
+            category={CATEGORIES.love}
+            reportId={completedMap.love}
+            onClick={() => handleCategoryClick('love')}
+            onViewResult={(rid) => navigate(`/r/${rid}`)}
+          />
+        </div>
+
         {/* 패키지 추천 */}
-        <div className="mb-12 anim-fade-up" style={{ animationDelay: '100ms' }}>
+        <div className="mb-12 anim-fade-up" style={{ animationDelay: '150ms' }}>
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3 text-center">PACKAGE</div>
           <PackageCard pkg={PACKAGES.all} highlighted />
         </div>
 
-        {/* 카테고리 6개 */}
+        {/* 나머지 카테고리 */}
         <div className="space-y-3 anim-fade-up" style={{ animationDelay: '200ms' }}>
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3 text-center">INDIVIDUAL</div>
-          {CATEGORY_ORDER.map((catId, idx) => {
+          {CATEGORY_ORDER.filter(id => id !== 'love').map((catId, idx) => {
             const cat = CATEGORIES[catId];
-            const isCompleted = completedIds.includes(catId);
-            const isLocked = cat.requiresMinReports && completed.length < cat.requiresMinReports;
+            const reportId = completedMap[catId];
             return (
               <CategoryCard 
                 key={catId} 
                 category={cat} 
-                isCompleted={isCompleted}
-                isLocked={isLocked}
-                onClick={() => !isLocked && handleCategoryClick(catId)}
+                reportId={reportId}
+                onClick={() => handleCategoryClick(catId)}
+                onViewResult={(rid) => navigate(`/r/${rid}`)}
                 delay={300 + idx * 50}
               />
             );
@@ -188,6 +233,40 @@ function Landing() {
         <div className="text-center text-[#f5ebd7]/40 text-xs mt-12 font-myeongjo">
           연애 결은 무료로 체험 가능해요
         </div>
+      </div>
+    </div>
+  );
+}
+
+// 연애 결 - 강조 카드
+function FeaturedCategoryCard({ category, reportId, onClick, onViewResult }) {
+  return (
+    <div className="bg-gradient-to-br from-[#d4a374]/15 to-[#d4a374]/5 border-2 border-[#d4a374]/40 p-6 relative">
+      <div className="absolute -top-2 left-6 bg-[#d4a374] text-[#3a2840] px-3 py-0.5 text-[10px] tracking-wider font-bold">
+        무료 체험
+      </div>
+      <div className="flex items-start gap-4 mb-3">
+        <div className="font-myeongjo text-5xl text-[#d4a374] font-bold">{category.hanja}</div>
+        <div className="flex-1">
+          <div className="text-[#d4a374]/60 text-[10px] tracking-[0.3em] mb-1">{category.nameEn}</div>
+          <div className="font-myeongjo text-[#f5ebd7] text-xl font-bold mb-1">{category.name}</div>
+          <div className="text-[#f5ebd7]/60 text-xs font-myeongjo">{category.tagline}</div>
+        </div>
+      </div>
+      <p className="text-[#f5ebd7]/70 text-xs leading-relaxed font-myeongjo mb-4">
+        {category.description}
+      </p>
+      <div className="flex gap-2">
+        <button onClick={onClick}
+          className="flex-1 bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
+          {reportId ? '다시 받기' : '바로 시작하기'} →
+        </button>
+        {reportId && (
+          <button onClick={() => onViewResult(reportId)}
+            className="px-4 py-3 bg-[#f5ebd7]/8 border border-[#d4a374]/30 text-[#d4a374] text-xs hover:bg-[#f5ebd7]/15 transition">
+            내 결과 보기
+          </button>
+        )}
       </div>
     </div>
   );
@@ -224,53 +303,54 @@ function PackageCard({ pkg, highlighted }) {
   );
 }
 
-function CategoryCard({ category, isCompleted, isLocked, onClick, delay }) {
+// 일반 카테고리 카드 - 완료된 거 옆에 "내 결과 보기" 버튼
+function CategoryCard({ category, reportId, onClick, onViewResult, delay }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={isLocked}
-      className={`w-full text-left p-5 transition-all anim-fade-up ${
-        isLocked 
-          ? 'bg-[#f5ebd7]/3 border-[#d4a374]/10 opacity-50 cursor-not-allowed' 
-          : 'bg-[#f5ebd7]/5 hover:bg-[#f5ebd7]/8 border-[#d4a374]/15 hover:border-[#d4a374]/40'
-      } border`}
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="font-myeongjo text-3xl text-[#d4a374]/70">{category.hanja}</div>
-          <div>
-            <div className="text-[#d4a374]/50 text-[10px] tracking-[0.3em] mb-0.5">{category.nameEn}</div>
-            <div className="font-myeongjo text-[#f5ebd7] font-bold flex items-center gap-2">
-              {category.name}
-              {isCompleted && <span className="text-[#d4a374] text-[10px] bg-[#d4a374]/15 px-2 py-0.5">완료</span>}
+    <div className="anim-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <div className="bg-[#f5ebd7]/5 border border-[#d4a374]/15 hover:border-[#d4a374]/40 transition-all flex">
+        <button onClick={onClick}
+          className="flex-1 text-left p-5 hover:bg-[#f5ebd7]/3 transition">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="font-myeongjo text-3xl text-[#d4a374]/70">{category.hanja}</div>
+              <div>
+                <div className="text-[#d4a374]/50 text-[10px] tracking-[0.3em] mb-0.5">{category.nameEn}</div>
+                <div className="font-myeongjo text-[#f5ebd7] font-bold flex items-center gap-2">
+                  {category.name}
+                  {reportId && <span className="text-[#d4a374] text-[10px] bg-[#d4a374]/15 px-2 py-0.5">완료</span>}
+                </div>
+                <div className="text-[#f5ebd7]/50 text-xs mt-1 font-myeongjo">{category.tagline}</div>
+              </div>
             </div>
-            <div className="text-[#f5ebd7]/50 text-xs mt-1 font-myeongjo">{category.tagline}</div>
+            <div className="text-right">
+              {category.free ? (
+                <div className="text-[#d4a374] text-sm font-bold">무료</div>
+              ) : (
+                <div className="font-myeongjo text-[#d4a374] text-sm font-bold">{category.priceLabel}</div>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="text-right">
-          {category.free ? (
-            <div className="text-[#d4a374] text-sm font-bold">무료</div>
-          ) : (
-            <div className="font-myeongjo text-[#d4a374] text-sm font-bold">{category.priceLabel}</div>
-          )}
-          {isLocked && (
-            <div className="text-[#f5ebd7]/40 text-[10px] mt-1">2개 분석 후</div>
-          )}
-        </div>
+        </button>
+        {reportId && (
+          <button onClick={() => onViewResult(reportId)}
+            className="border-l border-[#d4a374]/15 px-4 text-[#d4a374] text-xs hover:bg-[#d4a374]/10 transition flex flex-col items-center justify-center gap-1 min-w-[60px]">
+            <div className="text-base">📄</div>
+            <div className="text-[9px]">보기</div>
+          </button>
+        )}
       </div>
-    </button>
+    </div>
   );
 }
 
-// ============= CATEGORY FLOW (채팅 → 보고서) =============
+// ============= CATEGORY FLOW =============
 
 function CategoryFlow() {
   const { category } = useParams();
   const navigate = useNavigate();
   const cat = CATEGORIES[category];
   
-  const [stage, setStage] = useState('intro'); // intro, payment, chat, generating, report, error_report
+  const [stage, setStage] = useState('intro');
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
@@ -282,16 +362,7 @@ function CategoryFlow() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (!cat) {
-      navigate('/');
-      return;
-    }
-    // 락 체크
-    if (cat.requiresMinReports && getCompleted().length < cat.requiresMinReports) {
-      navigate('/');
-      return;
-    }
-    // 결제 체크
+    if (!cat) { navigate('/'); return; }
     if (!canAccess(category)) {
       setStage('payment');
     } else {
@@ -340,10 +411,7 @@ function CategoryFlow() {
       const cleaned = response.replace('[READY_FOR_REPORT]', '').trim();
       const finalMessages = [...newMessages, { role: 'assistant', content: cleaned }];
       setMessages(finalMessages);
-      
-      if (hasReady) {
-        setTimeout(() => generateReport(finalMessages), 1500);
-      }
+      if (hasReady) setTimeout(() => generateReport(finalMessages), 1500);
     } catch (err) {
       console.error(err);
       setError('잠시 문제가 있었어. 다시 보내줘.');
@@ -368,7 +436,6 @@ function CategoryFlow() {
     const tryGenerate = async () => {
       let promptContext = {};
       if (category === 'integrated') {
-        // 종합 결: 기존 보고서들 컨텍스트로
         const completed = getCompleted();
         promptContext.previousReports = completed.map(c => ({ category: c.category, reportId: c.reportId }));
       }
@@ -419,11 +486,9 @@ function CategoryFlow() {
   return null;
 }
 
-// ============= CATEGORY INTRO =============
-
 function CategoryIntro({ category, onStart, onBack }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center relative">
       <button onClick={onBack} className="absolute top-6 left-6 text-[#f5ebd7]/50 text-xs hover:text-[#f5ebd7]/80">← 처음</button>
       <div className="anim-fade-up">
         <div className="text-[#d4a374]/50 text-[10px] tracking-[0.5em] mb-4">{category.nameEn} · {category.hanja}</div>
@@ -442,39 +507,26 @@ function CategoryIntro({ category, onStart, onBack }) {
   );
 }
 
-// ============= PAYMENT MODAL (MOCK) =============
-
 function PaymentModal({ category, onConfirm, onCancel }) {
   const [confirming, setConfirming] = useState(false);
   
-  useEffect(() => {
-    events.openPaymentModal(category.id, category.price);
-  }, []);
+  useEffect(() => { events.openPaymentModal(category.id, category.price); }, []);
 
   const handleConfirm = () => {
     events.confirmPayment(category.id, category.price);
     setConfirming(true);
-    // Mock: 실제 결제 대신 안내 + 무료 진행 (검증용)
-    setTimeout(() => {
-      onConfirm();
-    }, 1500);
+    setTimeout(() => onConfirm(), 1500);
   };
+  const handleCancel = () => { events.cancelPayment(category.id); onCancel(); };
 
-  const handleCancel = () => {
-    events.cancelPayment(category.id);
-    onCancel();
-  };
-
-  if (confirming) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-6">
-        <div className="text-center anim-fade-up">
-          <div className="text-[#d4a374] text-4xl mb-4">✓</div>
-          <div className="font-display italic text-xl text-[#f5ebd7]">결제 준비 중...</div>
-        </div>
+  if (confirming) return (
+    <div className="min-h-screen flex items-center justify-center px-6">
+      <div className="text-center anim-fade-up">
+        <div className="text-[#d4a374] text-4xl mb-4">✓</div>
+        <div className="font-display italic text-xl text-[#f5ebd7]">결제 준비 중...</div>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex items-center justify-center px-6">
@@ -484,14 +536,12 @@ function PaymentModal({ category, onConfirm, onCancel }) {
           <div className="text-[#d4a374]/60 text-[10px] tracking-[0.3em] mb-1">{category.nameEn}</div>
           <h2 className="font-display italic text-2xl text-[#f5ebd7]">{category.name}</h2>
         </div>
-        
         <div className="border-t border-b border-[#d4a374]/20 py-4 mb-6">
           <div className="flex justify-between items-center">
             <span className="text-[#f5ebd7]/70 text-sm font-myeongjo">금액</span>
             <span className="font-myeongjo text-[#d4a374] text-2xl font-bold">{category.priceLabel}</span>
           </div>
         </div>
-
         <div className="bg-[#d4a374]/8 border border-[#d4a374]/20 p-4 mb-6">
           <p className="text-[#f5ebd7]/80 text-xs leading-relaxed font-myeongjo">
             💛 <strong className="text-[#d4a374]">베타 무료 체험 중</strong><br/>
@@ -499,7 +549,6 @@ function PaymentModal({ category, onConfirm, onCancel }) {
             정식 출시되면 카카오 채널로 알려드릴게요.
           </p>
         </div>
-
         <button onClick={handleConfirm}
           className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors mb-2">
           무료로 체험하기
@@ -508,7 +557,6 @@ function PaymentModal({ category, onConfirm, onCancel }) {
           className="w-full text-[#f5ebd7]/60 hover:text-[#f5ebd7]/90 py-2 text-xs tracking-wider">
           취소
         </button>
-
         <div className="text-center text-[#f5ebd7]/40 text-[10px] mt-6 font-myeongjo">
           <Link to="/terms" className="hover:text-[#f5ebd7]/60">이용약관</Link>
           <span className="mx-2">·</span>
@@ -520,8 +568,6 @@ function PaymentModal({ category, onConfirm, onCancel }) {
     </div>
   );
 }
-
-// ============= CHAT VIEW =============
 
 function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage, scrollRef, inputRef, error, onReset }) {
   const userMessageCount = messages.filter(m => m.role === 'user').length;
@@ -597,8 +643,6 @@ function TypingIndicator() {
   );
 }
 
-// ============= GENERATING =============
-
 function GeneratingView({ category, reportReady, onComplete }) {
   const [stage, setStage] = useState(0);
   const stages = ['결을 읽고 있어요', '패턴을 엮는 중이에요', '거의 다 됐어요'];
@@ -650,10 +694,11 @@ function ErrorReportView({ onRetry, onReset }) {
   );
 }
 
-// ============= REPORT VIEW (카테고리별 분기) =============
+// ============= REPORT VIEW =============
 
 function ReportView({ category, report, reportId, onReset }) {
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showVaultModal, setShowVaultModal] = useState(false);
   const reportContentRef = useRef(null);
 
   return (
@@ -662,7 +707,6 @@ function ReportView({ category, report, reportId, onReset }) {
         <ReportHeader category={category} />
         <HeadlineCard headline={report.headline} />
         
-        {/* 카테고리별 분기 */}
         {category.id === 'love' && <LoveReportSections report={report} />}
         {category.id === 'friend' && <FriendReportSections report={report} />}
         {category.id === 'career' && <CareerReportSections report={report} />}
@@ -671,6 +715,7 @@ function ReportView({ category, report, reportId, onReset }) {
         {category.id === 'integrated' && <IntegratedReportSections report={report} />}
         
         <ClosingCard closing={report.closing} />
+        <VaultCTA onClick={() => setShowVaultModal(true)} />
         <CrossSellCard currentCategory={category.id} />
         <NewServicesCard source="owner" />
       </div>
@@ -688,6 +733,9 @@ function ReportView({ category, report, reportId, onReset }) {
 
       {showShareModal && (
         <ShareModal category={category} report={report} reportId={reportId} reportContentRef={reportContentRef} onClose={() => setShowShareModal(false)} />
+      )}
+      {showVaultModal && (
+        <VaultModal category={category} reportId={reportId} onClose={() => setShowVaultModal(false)} />
       )}
     </div>
   );
@@ -721,7 +769,113 @@ function ClosingCard({ closing }) {
   );
 }
 
-// ===== 연애 결 섹션 =====
+// 보관함 CTA - 결과 페이지 끝에
+function VaultCTA({ onClick }) {
+  const vault = getVaultInfo();
+  return (
+    <div className="bg-gradient-to-br from-[#d4a374]/15 to-transparent border border-[#d4a374]/30 p-6 anim-fade-up" style={{ animationDelay: '720ms' }}>
+      <div className="text-center mb-4">
+        <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-2">MY VAULT</div>
+        <h2 className="font-display italic text-xl text-[#f5ebd7] mb-2">결을 영구히 보관하세요</h2>
+        <p className="text-[#f5ebd7]/70 text-xs leading-relaxed font-myeongjo">
+          {vault?.userId 
+            ? '이미 보관함이 있어요. 다음 결도 자동으로 저장돼요.'
+            : '이메일만 입력하면 모든 결을 영구히 다시 볼 수 있어요'}
+        </p>
+      </div>
+      {!vault?.userId && (
+        <button onClick={onClick}
+          className="w-full bg-[#d4a374]/20 border border-[#d4a374]/50 hover:bg-[#d4a374]/30 transition py-3 text-[#d4a374] text-sm font-bold font-myeongjo">
+          내 결 보관함 만들기 →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 보관함 모달 (이메일 입력)
+function VaultModal({ category, reportId, onClose }) {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [vaultUrl, setVaultUrl] = useState(null);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async () => {
+    if (!email.trim() || !reportId) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('올바른 이메일을 입력해줘');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await saveToVault(email.trim(), reportId, category.id);
+      saveVaultInfo({ email: email.trim(), userId: data.userId });
+      setVaultUrl(data.vaultUrl);
+      setSuccess(true);
+    } catch (err) {
+      setError(err.message || '저장 실패. 잠시 후 다시 시도해줘');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center px-6" onClick={onClose}>
+      <div className="bg-[#3a2840] border border-[#d4a374]/30 w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+        {!success ? (
+          <>
+            <div className="flex justify-between items-start mb-5">
+              <div>
+                <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-1">MY VAULT</div>
+                <h2 className="font-myeongjo text-xl text-[#f5ebd7] font-bold">내 결 보관함</h2>
+              </div>
+              <button onClick={onClose} className="text-[#f5ebd7]/50 hover:text-[#f5ebd7]/90 text-2xl">×</button>
+            </div>
+            <p className="text-[#f5ebd7]/70 text-xs leading-relaxed font-myeongjo mb-5">
+              이메일을 입력하면 보관함 링크를 이메일로 보내드려요.<br/>
+              앞으로 받는 모든 결이 자동으로 저장돼요.
+            </p>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+              placeholder="your@email.com"
+              disabled={loading}
+              className="w-full bg-[#f5ebd7]/8 border border-[#d4a374]/30 px-4 py-3 text-[#f5ebd7] placeholder-[#f5ebd7]/30 text-sm focus:outline-none focus:border-[#d4a374]/60 mb-3 font-body" />
+            {error && <div className="text-red-300/80 text-xs mb-3 font-myeongjo">{error}</div>}
+            <button onClick={handleSubmit} disabled={loading || !email.trim()}
+              className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors disabled:opacity-50">
+              {loading ? '저장 중...' : '보관함 만들기'}
+            </button>
+            <div className="text-[#f5ebd7]/40 text-[10px] mt-4 leading-relaxed font-myeongjo">
+              ※ 이메일은 보관함 알림 발송 외 용도로 사용되지 않아요.<br/>
+              자세한 내용은 <Link to="/privacy" className="underline" onClick={onClose}>개인정보처리방침</Link> 참고.
+            </div>
+          </>
+        ) : (
+          <div className="text-center">
+            <div className="text-5xl mb-4">✨</div>
+            <h2 className="font-myeongjo text-xl text-[#f5ebd7] font-bold mb-3">보관함이 만들어졌어요</h2>
+            <p className="text-[#f5ebd7]/70 text-sm font-myeongjo mb-5 leading-relaxed">
+              <strong className="text-[#d4a374]">{email}</strong> 로<br/>
+              보관함 링크를 보냈어요. 이메일 확인해줘!
+            </p>
+            <div className="bg-[#d4a374]/10 border border-[#d4a374]/30 p-3 mb-5">
+              <div className="text-[#d4a374]/60 text-[10px] tracking-wider mb-1">VAULT URL</div>
+              <a href={vaultUrl} className="text-[#d4a374] text-xs break-all hover:underline font-mono">{vaultUrl}</a>
+            </div>
+            <button onClick={onClose}
+              className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm">
+              확인
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== 보고서 섹션 컴포넌트들 =====
+
 function LoveReportSections({ report }) {
   return (
     <>
@@ -729,7 +883,6 @@ function LoveReportSections({ report }) {
         <KeywordPills items={report.real_type?.keywords} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.real_type?.content}</p>
       </SectionCard>
-
       <SectionCard title="PATTERNS" delay={300}>
         <div className="space-y-4">
           {report.patterns?.map((p, i) => (
@@ -740,7 +893,6 @@ function LoveReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="ATTACHMENT STYLE" subtitle={report.attachment_style?.type} delay={400}>
         <div className="flex items-center justify-between mb-3">
           <span className="font-myeongjo text-3xl text-[#d4a374] font-bold">{report.attachment_style?.percentage}%</span>
@@ -750,12 +902,10 @@ function LoveReportSections({ report }) {
         </div>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.attachment_style?.reason}</p>
       </SectionCard>
-
       <SectionCard title="NEXT PERSON" subtitle={report.next_person?.title} delay={500}>
         <KeywordPills items={report.next_person?.traits} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.next_person?.content}</p>
       </SectionCard>
-
       <SectionCard title="AVOID" subtitle={report.avoid?.title} delay={600} variant="warning">
         <KeywordPills items={report.avoid?.warnings} variant="warning" />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.avoid?.content}</p>
@@ -764,7 +914,6 @@ function LoveReportSections({ report }) {
   );
 }
 
-// ===== 친구 결 섹션 =====
 function FriendReportSections({ report }) {
   return (
     <>
@@ -772,7 +921,6 @@ function FriendReportSections({ report }) {
         <KeywordPills items={report.role_type?.keywords} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.role_type?.content}</p>
       </SectionCard>
-
       <SectionCard title="PATTERNS" delay={300}>
         <div className="space-y-4">
           {report.patterns?.map((p, i) => (
@@ -783,26 +931,21 @@ function FriendReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="WOUND PATTERN" subtitle={report.wound_pattern?.title} delay={400} variant="warning">
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.wound_pattern?.content}</p>
       </SectionCard>
-
       <SectionCard title="REAL NEED" subtitle={report.real_need?.title} delay={500}>
         <KeywordPills items={report.real_need?.keywords} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.real_need?.content}</p>
       </SectionCard>
-
       <SectionCard title="COMPATIBLE FRIENDS" subtitle={report.compatible?.title} delay={550}>
         <KeywordPills items={report.compatible?.traits} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.compatible?.content}</p>
       </SectionCard>
-
       <SectionCard title="AVOID" subtitle={report.avoid?.title} delay={600} variant="warning">
         <KeywordPills items={report.avoid?.warnings} variant="warning" />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.avoid?.content}</p>
       </SectionCard>
-
       <SectionCard title="ACTION" subtitle={report.action?.title} delay={650}>
         <ol className="space-y-2">
           {report.action?.steps?.map((step, i) => (
@@ -817,7 +960,6 @@ function FriendReportSections({ report }) {
   );
 }
 
-// ===== 진로 결 섹션 =====
 function CareerReportSections({ report }) {
   return (
     <>
@@ -834,21 +976,17 @@ function CareerReportSections({ report }) {
         <p className="text-[#d4a374] text-sm mb-2 font-myeongjo italic">{report.current_state?.diagnosis}</p>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.current_state?.content}</p>
       </SectionCard>
-
       <SectionCard title="REAL BLOCK" subtitle={report.real_block?.title} delay={300} variant="warning">
         <div className="text-[#d4a374] text-xs mb-2 font-myeongjo tracking-wider">{report.real_block?.type}</div>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.real_block?.content}</p>
       </SectionCard>
-
       <SectionCard title="HIDDEN DESIRE" subtitle={report.hidden_desire?.title} delay={400}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.hidden_desire?.content}</p>
       </SectionCard>
-
       <SectionCard title="COMPATIBILITY" subtitle={report.compatibility?.title} delay={500}>
         <KeywordPills items={report.compatibility?.fit_types} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.compatibility?.content}</p>
       </SectionCard>
-
       <SectionCard title="NEXT STEP" subtitle={report.next_step?.title} delay={600}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mb-4 font-myeongjo">{report.next_step?.content}</p>
         <div className="space-y-3">
@@ -860,7 +998,6 @@ function CareerReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="WARNING" subtitle={report.warning?.title} delay={650} variant="warning">
         <KeywordPills items={report.warning?.warnings} variant="warning" />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.warning?.content}</p>
@@ -869,7 +1006,6 @@ function CareerReportSections({ report }) {
   );
 }
 
-// ===== 직무 결 섹션 =====
 function WorkReportSections({ report }) {
   return (
     <>
@@ -877,7 +1013,6 @@ function WorkReportSections({ report }) {
         <KeywordPills items={report.core_strength?.evidence} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.core_strength?.content}</p>
       </SectionCard>
-
       <SectionCard title="WORK STYLE" subtitle={report.work_style?.title} delay={300}>
         <div className="space-y-2 mb-3">
           <div className="flex justify-between text-xs">
@@ -895,7 +1030,6 @@ function WorkReportSections({ report }) {
         </div>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.work_style?.content}</p>
       </SectionCard>
-
       <SectionCard title="STRENGTHS" delay={400}>
         <div className="space-y-4">
           {report.strengths?.map((s, i) => (
@@ -907,7 +1041,6 @@ function WorkReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="BLIND SPOTS" delay={500} variant="warning">
         <div className="space-y-4">
           {report.blind_spots?.map((b, i) => (
@@ -919,12 +1052,10 @@ function WorkReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="FIT ROLES" subtitle={report.fit_roles?.title} delay={550}>
         <KeywordPills items={report.fit_roles?.roles} />
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed mt-3 font-myeongjo">{report.fit_roles?.content}</p>
       </SectionCard>
-
       <SectionCard title="TEAM FIT" subtitle={report.team_fit?.title} delay={600}>
         <div className="mb-3">
           <div className="text-[#d4a374] text-xs mb-2 tracking-wider">잘 맞는 사람</div>
@@ -935,7 +1066,6 @@ function WorkReportSections({ report }) {
           <KeywordPills items={report.team_fit?.bad_traits} variant="warning" />
         </div>
       </SectionCard>
-
       <SectionCard title="COVER LETTER HOOKS" subtitle="자소서 핵심 후크" delay={650}>
         <div className="space-y-5">
           {report.cover_letter_hooks?.items?.map((item, i) => (
@@ -951,7 +1081,6 @@ function WorkReportSections({ report }) {
   );
 }
 
-// ===== 번아웃 결 섹션 =====
 function BurnoutReportSections({ report }) {
   const levelColor = {
     '낮음': 'text-green-300', '보통': 'text-yellow-300',
@@ -971,11 +1100,9 @@ function BurnoutReportSections({ report }) {
         </div>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.burnout_level?.content}</p>
       </SectionCard>
-
       <SectionCard title="BURNOUT TYPE" subtitle={report.burnout_type?.type} delay={300}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.burnout_type?.content}</p>
       </SectionCard>
-
       <SectionCard title="THREE AXES" subtitle="MBI 3축 분석" delay={400}>
         <div className="space-y-4">
           {[
@@ -996,15 +1123,12 @@ function BurnoutReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="TIMELINE" subtitle={report.timeline?.title} delay={500}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.timeline?.content}</p>
       </SectionCard>
-
       <SectionCard title="TRIGGER" subtitle={report.trigger?.title} delay={550} variant="warning">
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.trigger?.content}</p>
       </SectionCard>
-
       <SectionCard title="IMMEDIATE NEEDS" subtitle="지금 당장 필요한 것" delay={600}>
         <div className="space-y-3">
           {report.immediate_needs?.items?.map((item, i) => (
@@ -1016,7 +1140,6 @@ function BurnoutReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       {report.professional_help?.recommended && (
         <div className="bg-red-300/10 border border-red-300/30 p-6 anim-fade-up" style={{ animationDelay: '700ms' }}>
           <div className="text-red-300/80 text-[10px] tracking-[0.4em] mb-3">⚠ PROFESSIONAL HELP</div>
@@ -1031,19 +1154,16 @@ function BurnoutReportSections({ report }) {
   );
 }
 
-// ===== 종합 결 섹션 =====
 function IntegratedReportSections({ report }) {
   return (
     <>
       <SectionCard title="CORE IDENTITY" subtitle={report.core_identity?.title} delay={200}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.core_identity?.content}</p>
       </SectionCard>
-
       <SectionCard title="THREAD" subtitle={report.thread?.title} delay={300}>
         <div className="text-[#d4a374] text-sm mb-2 font-myeongjo italic">"{report.thread?.pattern}"</div>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.thread?.content}</p>
       </SectionCard>
-
       <SectionCard title="WOVEN STRENGTHS" delay={400}>
         <div className="space-y-4">
           {report.strengths_woven?.items?.map((item, i) => (
@@ -1057,7 +1177,6 @@ function IntegratedReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="WATCH POINTS" delay={500} variant="warning">
         <div className="space-y-4">
           {report.watch_points?.items?.map((item, i) => (
@@ -1071,7 +1190,6 @@ function IntegratedReportSections({ report }) {
           ))}
         </div>
       </SectionCard>
-
       <SectionCard title="LIFE COMPASS" subtitle={report.life_compass?.title} delay={600}>
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-[#d4a374]/8 p-3 border-l-2 border-[#d4a374]">
@@ -1092,7 +1210,6 @@ function IntegratedReportSections({ report }) {
           </div>
         </div>
       </SectionCard>
-
       <SectionCard title="NEXT CHAPTER" subtitle={report.next_chapter?.title} delay={700}>
         <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo">{report.next_chapter?.content}</p>
       </SectionCard>
@@ -1100,7 +1217,6 @@ function IntegratedReportSections({ report }) {
   );
 }
 
-// ===== 공통 컴포넌트 =====
 function SectionCard({ title, subtitle, children, delay = 0, variant }) {
   const borderColor = variant === 'warning' ? 'border-[#d4a374]/30' : 'border-[#d4a374]/20';
   return (
@@ -1131,17 +1247,13 @@ function KeywordPills({ items, variant }) {
 function CrossSellCard({ currentCategory }) {
   const navigate = useNavigate();
   const completed = getCompleted().map(c => c.category);
-  
-  // 종합 결 이미 본 사람은 크로스셀 X
   if (currentCategory === 'integrated') return null;
   
-  // 추천 카테고리 (현재 + 완료 제외, 최대 3개)
   const recommendations = CATEGORY_ORDER
     .filter(id => id !== currentCategory && !completed.includes(id) && id !== 'integrated')
     .slice(0, 3);
   
-  // 종합 결 활성화 여부
-  const integratedAvailable = (completed.length + 1) >= 2; // 현재 거 포함
+  const integratedAvailable = !completed.includes('integrated');
   
   if (recommendations.length === 0 && !integratedAvailable) return null;
 
@@ -1152,16 +1264,13 @@ function CrossSellCard({ currentCategory }) {
         <h2 className="font-display italic text-xl text-[#f5ebd7] mb-2">너의 결은 더 깊어요</h2>
         <p className="text-[#f5ebd7]/60 text-xs font-myeongjo">다른 결도 받아보면, 너의 진짜 모습이 보여요</p>
       </div>
-
       <div className="space-y-2 mb-3">
         {recommendations.map(catId => {
           const cat = CATEGORIES[catId];
           return (
-            <button
-              key={catId}
+            <button key={catId}
               onClick={() => { events.clickCrossSell(currentCategory, catId); navigate(`/c/${catId}`); }}
-              className="w-full p-3 bg-[#f5ebd7]/5 border border-[#d4a374]/15 hover:bg-[#f5ebd7]/10 hover:border-[#d4a374]/40 transition text-left flex items-center justify-between"
-            >
+              className="w-full p-3 bg-[#f5ebd7]/5 border border-[#d4a374]/15 hover:bg-[#f5ebd7]/10 hover:border-[#d4a374]/40 transition text-left flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="font-myeongjo text-xl text-[#d4a374]">{cat.hanja}</div>
                 <div>
@@ -1174,16 +1283,13 @@ function CrossSellCard({ currentCategory }) {
           );
         })}
       </div>
-
       {integratedAvailable && (
-        <button
-          onClick={() => { events.clickCrossSell(currentCategory, 'integrated'); navigate('/c/integrated'); }}
-          className="w-full p-3 bg-gradient-to-r from-[#d4a374]/20 to-[#d4a374]/10 border border-[#d4a374]/50 hover:border-[#d4a374] transition text-left flex items-center justify-between"
-        >
+        <button onClick={() => { events.clickCrossSell(currentCategory, 'integrated'); navigate('/c/integrated'); }}
+          className="w-full p-3 bg-gradient-to-r from-[#d4a374]/20 to-[#d4a374]/10 border border-[#d4a374]/50 hover:border-[#d4a374] transition text-left flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="font-myeongjo text-xl text-[#d4a374]">結</div>
             <div>
-              <div className="text-[#f5ebd7] text-sm font-bold font-myeongjo">종합 결 (지금 받을 수 있어요)</div>
+              <div className="text-[#f5ebd7] text-sm font-bold font-myeongjo">종합 결</div>
               <div className="text-[#f5ebd7]/60 text-[10px] font-myeongjo">여러 결을 관통하는 본질</div>
             </div>
           </div>
@@ -1194,7 +1300,7 @@ function CrossSellCard({ currentCategory }) {
   );
 }
 
-// ============= NEW SERVICES (카카오 채널 + 인스타) =============
+// ============= NEW SERVICES =============
 
 const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xkUQbX';
 const INSTAGRAM_URL = 'https://instagram.com/gyeol_kr';
@@ -1205,9 +1311,7 @@ function NewServicesCard({ source = 'owner' }) {
       <div className="text-center mb-5">
         <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-2">FOLLOW</div>
         <h2 className="font-display italic text-lg text-[#f5ebd7] mb-2">결과 결을 잇다</h2>
-        <p className="text-[#f5ebd7]/70 text-xs leading-relaxed font-myeongjo">
-          새 결, 새 소식, 가장 먼저 알려드릴게요
-        </p>
+        <p className="text-[#f5ebd7]/70 text-xs leading-relaxed font-myeongjo">새 결, 새 소식, 가장 먼저 알려드릴게요</p>
       </div>
       <div className="space-y-2">
         <a href={KAKAO_CHANNEL_URL} target="_blank" rel="noopener noreferrer"
@@ -1270,8 +1374,7 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
   };
 
   const copyText = () => {
-    let text = `[${category.name}]\n\n"${report.headline}"\n\n`;
-    text += `https://gyeol-mvp.vercel.app\n#결 #GYEOL #${category.nameEn}`;
+    let text = `[${category.name}]\n\n"${report.headline}"\n\nhttps://gyeol-mvp.vercel.app\n#결 #GYEOL #${category.nameEn}`;
     navigator.clipboard.writeText(text);
     events.copyText(category.id);
     setCopiedText(true);
@@ -1312,7 +1415,6 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
             </div>
             <button onClick={onClose} className="text-[#f5ebd7]/50 hover:text-[#f5ebd7]/90 text-2xl">×</button>
           </div>
-
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">SHARE</div>
           <button onClick={shareLinkNative} disabled={!shareUrl}
             className="w-full bg-[#FEE500]/15 border border-[#FEE500]/40 hover:bg-[#FEE500]/25 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-30">
@@ -1325,7 +1427,6 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
             </div>
             <div className="text-[#d4a374]">→</div>
           </button>
-
           {shareUrl && (
             <div className="flex gap-2 mb-6">
               <input value={shareUrl} readOnly className="flex-1 bg-[#f5ebd7]/5 border border-[#d4a374]/20 px-3 py-2 text-[#f5ebd7]/80 text-xs font-mono" />
@@ -1334,7 +1435,6 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
               </button>
             </div>
           )}
-
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">DOWNLOAD</div>
           <button onClick={downloadFullImage} disabled={busy}
             className="w-full bg-[#f5ebd7]/5 border border-[#d4a374]/20 hover:bg-[#f5ebd7]/10 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-50">
@@ -1344,7 +1444,6 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
               <div className="text-[#f5ebd7]/50 text-[10px] font-myeongjo">{busy ? '생성 중...' : '보고서 전체를 한 장 PNG로'}</div>
             </div>
           </button>
-
           <button onClick={copyText}
             className="w-full bg-[#f5ebd7]/5 border border-[#d4a374]/20 hover:bg-[#f5ebd7]/10 transition p-4 flex items-center gap-3">
             <div className="text-2xl">📋</div>
@@ -1359,7 +1458,7 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
   );
 }
 
-// ============= SHARED REPORT PAGE (티저) =============
+// ============= SHARED REPORT PAGE =============
 
 function SharedReportPage() {
   const { id } = useParams();
@@ -1410,12 +1509,37 @@ function SharedReportPage() {
 
   if (!report || !category) return null;
 
+  // 본인 결과인지 확인 (localStorage의 completed에 reportId 있으면 본인 것)
+  const isOwner = getCompleted().some(c => c.reportId === id);
+
+  // 본인 결과면 전체 표시, 아니면 티저
+  if (isOwner) {
+    return (
+      <div className="min-h-screen overflow-y-auto">
+        <div className="max-w-xl mx-auto px-6 py-12 space-y-8">
+          <button onClick={() => navigate('/')} className="text-[#f5ebd7]/50 text-xs hover:text-[#f5ebd7]/80">← 처음</button>
+          <ReportHeader category={category} />
+          <HeadlineCard headline={report.headline} />
+          {category.id === 'love' && <LoveReportSections report={report} />}
+          {category.id === 'friend' && <FriendReportSections report={report} />}
+          {category.id === 'career' && <CareerReportSections report={report} />}
+          {category.id === 'work' && <WorkReportSections report={report} />}
+          {category.id === 'burnout' && <BurnoutReportSections report={report} />}
+          {category.id === 'integrated' && <IntegratedReportSections report={report} />}
+          <ClosingCard closing={report.closing} />
+          <NewServicesCard source="owner" />
+          <div className="pb-12" />
+        </div>
+      </div>
+    );
+  }
+
+  // 공유받은 사람용 티저
   return (
     <div className="min-h-screen overflow-y-auto">
       <div className="max-w-xl mx-auto px-6 py-12 space-y-8">
         <ReportHeader category={category} />
         <HeadlineCard headline={report.headline} />
-        
         <div className="bg-[#d4a374]/8 border border-[#d4a374]/30 p-6 text-center anim-fade-up" style={{ animationDelay: '200ms' }}>
           <p className="text-[#f5ebd7]/80 text-sm leading-relaxed font-myeongjo mb-4">
             친구가 너에게 자신의 결을 공유했어요.<br/>
@@ -1426,8 +1550,6 @@ function SharedReportPage() {
             나의 결 보러가기
           </button>
         </div>
-
-        {/* 블러된 일부 콘텐츠로 호기심 자극 */}
         <div className="relative anim-fade-up" style={{ animationDelay: '400ms' }}>
           <div className="bg-[#f5ebd7]/4 border border-[#d4a374]/20 p-6 filter blur-sm select-none pointer-events-none">
             <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-4">FULL REPORT</div>
@@ -1446,16 +1568,117 @@ function SharedReportPage() {
             </div>
           </div>
         </div>
-
         <div className="pt-4 anim-fade-up" style={{ animationDelay: '500ms' }}>
           <button onClick={() => { events.clickCTAFromShared(); navigate('/'); }}
             className="w-full bg-[#d4a374] text-[#3a2840] py-4 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
             나의 결 만들러 가기
           </button>
         </div>
-
         <NewServicesCard source="shared" />
         <div className="pb-12" />
+      </div>
+    </div>
+  );
+}
+
+// ============= VAULT PAGE (보관함) =============
+
+function VaultPage() {
+  const { userId } = useParams();
+  const navigate = useNavigate();
+  const [vault, setVault] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(`/api/get-vault?userId=${encodeURIComponent(userId)}`)
+      .then(async r => {
+        if (r.status === 404) throw new Error('not_found');
+        if (!r.ok) throw new Error('error');
+        return r.json();
+      })
+      .then(data => {
+        setVault(data);
+        // 로컬 스토리지에도 캐시
+        saveVaultInfo({ email: data.email, userId });
+        setLoading(false);
+      })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, [userId]);
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="font-myeongjo text-5xl text-[#d4a374] animate-pulse">結</div>
+    </div>
+  );
+
+  if (error || !vault) return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+      <div className="font-myeongjo text-7xl text-[#d4a374]/40 mb-6">結</div>
+      <h1 className="font-display italic text-2xl text-[#f5ebd7] mb-3">보관함을 찾을 수 없어</h1>
+      <p className="text-[#f5ebd7]/60 text-sm mb-8 font-myeongjo">링크가 잘못되었거나 만료됐어요.</p>
+      <button onClick={() => navigate('/')}
+        className="bg-[#d4a374] text-[#3a2840] px-10 py-3 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
+        처음으로
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen px-6 py-12">
+      <div className="max-w-2xl mx-auto">
+        <button onClick={() => navigate('/')} className="text-[#f5ebd7]/50 text-xs hover:text-[#f5ebd7]/80 mb-6">← 처음</button>
+        
+        <div className="text-center mb-10 anim-fade-up">
+          <div className="text-[#d4a374]/50 text-[10px] tracking-[0.5em] mb-3">MY VAULT</div>
+          <div className="font-myeongjo text-6xl text-[#d4a374] font-bold mb-4">結</div>
+          <h1 className="font-display italic text-3xl text-[#f5ebd7] mb-2">내 결 보관함</h1>
+          <p className="text-[#f5ebd7]/60 text-xs font-myeongjo">{vault.email}</p>
+        </div>
+
+        {vault.reports.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-[#f5ebd7]/60 text-sm font-myeongjo mb-6">아직 저장된 결이 없어요.</p>
+            <button onClick={() => navigate('/')}
+              className="bg-[#d4a374] text-[#3a2840] px-10 py-3 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
+              첫 결 받으러 가기
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3 anim-fade-up" style={{ animationDelay: '200ms' }}>
+            <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">RECEIVED REPORTS</div>
+            {vault.reports.map((item, i) => {
+              const cat = CATEGORIES[item.category] || CATEGORIES.love;
+              return (
+                <button key={item.reportId}
+                  onClick={() => navigate(`/r/${item.reportId}`)}
+                  className="w-full bg-[#f5ebd7]/5 border border-[#d4a374]/20 hover:border-[#d4a374]/50 hover:bg-[#f5ebd7]/8 transition p-5 text-left">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="font-myeongjo text-3xl text-[#d4a374]">{cat.hanja}</div>
+                      <div>
+                        <div className="text-[#d4a374]/60 text-[10px] tracking-[0.3em] mb-0.5">{cat.nameEn}</div>
+                        <div className="font-myeongjo text-[#f5ebd7] font-bold">{cat.name}</div>
+                      </div>
+                    </div>
+                    <div className="text-[#f5ebd7]/40 text-[10px] font-myeongjo">
+                      {new Date(item.savedAt).toLocaleDateString('ko-KR')}
+                    </div>
+                  </div>
+                  {item.report?.headline && (
+                    <p className="text-[#f5ebd7]/80 text-sm font-myeongjo italic leading-relaxed">
+                      "{item.report.headline}"
+                    </p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-12">
+          <NewServicesCard source="vault" />
+        </div>
       </div>
     </div>
   );
@@ -1481,33 +1704,18 @@ function TermsPage() {
     <LegalPageWrapper title="이용약관">
       <h2 className="text-[#d4a374] font-bold mt-6">제1조 (목적)</h2>
       <p>이 약관은 주식회사 로월(이하 "회사")이 운영하는 "결(GYEOL)" 서비스의 이용조건 및 절차에 관한 사항을 규정함을 목적으로 합니다.</p>
-      
       <h2 className="text-[#d4a374] font-bold mt-6">제2조 (서비스 내용)</h2>
-      <p>회사는 다음과 같은 AI 기반 자기분석 서비스를 제공합니다:</p>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>연애·관계 패턴 분석 (결)</li>
-        <li>친구관계 패턴 분석</li>
-        <li>진로 고민 분석</li>
-        <li>직무 자기분석</li>
-        <li>번아웃 분석</li>
-        <li>종합 분석</li>
-      </ul>
-
+      <p>회사는 AI 기반 자기분석 서비스를 제공합니다: 연애·관계 / 친구관계 / 진로 / 직무 / 번아웃 / 종합 분석.</p>
       <h2 className="text-[#d4a374] font-bold mt-6">제3조 (서비스 이용)</h2>
       <p>이용자는 회사가 정한 절차에 따라 결제 후 서비스를 이용할 수 있습니다. 일부 서비스는 무료로 제공됩니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">제4조 (결과의 성격)</h2>
       <p>본 서비스는 AI 기반의 참고용 자기분석 서비스이며, 의학적 진단·법률적 조언·심리치료를 대체할 수 없습니다. 특히 번아웃 분석 결과는 의학적 진단이 아니며, 심각한 정신건강 문제가 의심될 경우 반드시 전문가와 상담하시기 바랍니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">제5조 (책임의 제한)</h2>
       <p>회사는 AI 분석 결과로 인한 이용자의 의사결정에 대해 법적 책임을 지지 않습니다. 결과는 참고용으로만 활용해주시기 바랍니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">제6조 (지적재산권)</h2>
       <p>서비스에서 생성된 분석 결과는 이용자 본인을 위해 생성되었으며, 회사는 서비스 개선을 위해 익명화된 데이터를 활용할 수 있습니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">제7조 (서비스 변경 및 중단)</h2>
       <p>회사는 운영상·기술상 필요에 따라 서비스를 변경하거나 중단할 수 있습니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">부칙</h2>
       <p>본 약관은 2026년 5월 27일부터 시행됩니다.</p>
     </LegalPageWrapper>
@@ -1518,36 +1726,30 @@ function PrivacyPage() {
   return (
     <LegalPageWrapper title="개인정보처리방침">
       <p>주식회사 로월(이하 "회사")은 이용자의 개인정보를 중요시하며, 「개인정보 보호법」을 준수합니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">1. 수집하는 개인정보</h2>
-      <p>회사는 다음의 정보를 수집합니다:</p>
       <ul className="list-disc pl-5 space-y-1">
         <li>이용자가 AI 채팅에 입력한 답변 내용</li>
         <li>분석 결과 데이터</li>
+        <li>이메일 주소 (보관함 기능 이용 시)</li>
         <li>서비스 이용 기록 (방문 시간, 클릭 등)</li>
         <li>결제 시 결제 정보 (결제 처리에 필요한 최소 정보)</li>
       </ul>
-
       <h2 className="text-[#d4a374] font-bold mt-6">2. 수집·이용 목적</h2>
       <ul className="list-disc pl-5 space-y-1">
         <li>AI 분석 서비스 제공</li>
         <li>분석 결과 저장 및 공유 (30일)</li>
+        <li>보관함 기능 제공 (이메일 알림 발송)</li>
         <li>서비스 개선 및 통계 분석</li>
         <li>결제 처리 및 환불</li>
       </ul>
-
       <h2 className="text-[#d4a374] font-bold mt-6">3. 보유 기간</h2>
-      <p>이용자의 채팅 내용 및 분석 결과는 생성일로부터 30일간 보관 후 자동 삭제됩니다. 결제 정보는 관련 법령에 따라 5년간 보관될 수 있습니다.</p>
-
+      <p>이용자의 채팅 내용 및 분석 결과는 생성일로부터 30일간 보관되며, 보관함에 저장된 경우 영구 보관됩니다. 결제 정보는 관련 법령에 따라 5년간 보관될 수 있습니다.</p>
       <h2 className="text-[#d4a374] font-bold mt-6">4. 제3자 제공</h2>
       <p>회사는 이용자의 동의 없이 개인정보를 제3자에게 제공하지 않습니다. 단, AI 분석을 위해 Anthropic Inc. (Claude AI)에 답변 내용이 전달되며, 통계 분석을 위해 Google Analytics 4가 사용됩니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">5. 이용자의 권리</h2>
       <p>이용자는 언제든지 본인의 정보 조회, 수정, 삭제를 요청할 수 있습니다. lowwall.kr@gmail.com 으로 문의해주세요.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">6. 개인정보 보호책임자</h2>
       <p>· 이름: 여수민<br/>· 이메일: lowwall.kr@gmail.com</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">7. 시행일</h2>
       <p>본 방침은 2026년 5월 27일부터 시행됩니다.</p>
     </LegalPageWrapper>
@@ -1559,30 +1761,20 @@ function RefundPage() {
     <LegalPageWrapper title="환불 정책">
       <h2 className="text-[#d4a374] font-bold mt-6">디지털 콘텐츠 특성상의 안내</h2>
       <p>본 서비스(결, GYEOL)는 AI 기반 디지털 콘텐츠로, 결제 후 즉시 분석이 제공됩니다. 「전자상거래법」 제17조 제2항에 따라 이미 제공이 시작된 디지털 콘텐츠는 청약철회가 제한됩니다.</p>
-
       <h2 className="text-[#d4a374] font-bold mt-6">환불 가능한 경우</h2>
       <ul className="list-disc pl-5 space-y-1">
         <li>결제 완료 후 분석을 시작하지 않은 경우 (채팅 미시작 상태)</li>
         <li>시스템 오류로 분석이 완료되지 않은 경우</li>
         <li>결제 시점에 표시된 내용과 실제 제공 내용이 현저히 다른 경우</li>
       </ul>
-
       <h2 className="text-[#d4a374] font-bold mt-6">환불 불가능한 경우</h2>
       <ul className="list-disc pl-5 space-y-1">
         <li>분석 결과를 이미 확인한 경우</li>
         <li>분석 결과의 내용에 대한 단순 변심</li>
         <li>분석 채팅을 시작한 이후</li>
       </ul>
-
       <h2 className="text-[#d4a374] font-bold mt-6">환불 신청 방법</h2>
-      <p>환불을 원하시는 경우 lowwall.kr@gmail.com 으로 다음 정보와 함께 문의해주세요:</p>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>주문번호</li>
-        <li>결제일</li>
-        <li>환불 사유</li>
-      </ul>
-      <p>접수일로부터 3영업일 이내 답변드리며, 환불 승인 시 영업일 기준 3-5일 내 처리됩니다.</p>
-
+      <p>환불을 원하시는 경우 lowwall.kr@gmail.com 으로 다음 정보와 함께 문의해주세요: 주문번호 / 결제일 / 환불 사유. 접수일로부터 3영업일 이내 답변드리며, 환불 승인 시 영업일 기준 3-5일 내 처리됩니다.</p>
       <h2 className="text-[#d4a374] font-bold mt-6">시행일</h2>
       <p>본 정책은 2026년 5월 27일부터 시행됩니다.</p>
     </LegalPageWrapper>
@@ -1593,10 +1785,7 @@ function RefundPage() {
 
 function Footer() {
   const location = useLocation();
-  // 채팅 중에는 footer 숨김
-  if (location.pathname.startsWith('/c/') || location.pathname.startsWith('/r/')) {
-    // 보고서 페이지엔 보임. 채팅(/c/...)에는 안 보임은 아니고 - 어차피 스크롤해야 보임. 보이게 두자.
-  }
+  if (location.pathname.startsWith('/c/') && !location.pathname.includes('/intro')) return null;
   
   return (
     <footer className="border-t border-[#d4a374]/15 mt-20 py-8 px-6">
