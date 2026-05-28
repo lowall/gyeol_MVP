@@ -47,4 +47,7 @@ export const events = {
   
   // 크로스셀
   clickCrossSell: (from, to) => trackEvent('click_cross_sell', { from, to }),
+  
+  // 초대
+  clickInvite: (category) => trackEvent('click_invite', { category }),
 };

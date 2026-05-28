@@ -15,6 +15,8 @@ export const CATEGORIES = {
     color: '#d4a374',
     estimatedMinutes: 8,
     active: true,
+    inviteLabel: '내 연인에게도 보내기',
+    inviteDesc: '연인의 연애 결도 궁금하지 않아?',
   },
   friend: {
     id: 'friend',
@@ -30,6 +32,8 @@ export const CATEGORIES = {
     color: '#a8c4a2',
     estimatedMinutes: 7,
     active: true,
+    inviteLabel: '내 친구한테 보내기',
+    inviteDesc: '내 친구는 어떤 결일까?',
   },
   career: {
     id: 'career',
@@ -82,7 +86,7 @@ export const CATEGORIES = {
     nameEn: 'INTEGRATED',
     hanja: '結',
     tagline: '여러 결을 관통하는 너의 본질',
-    description: '2개 이상의 결을 받은 후 활성화. 카테고리를 관통하는 통합 인사이트',
+    description: '받은 결들을 통합해 새로운 통찰을 보여드려요',
     price: 9900,
     priceLabel: '9,900원',
     free: false,
@@ -90,7 +94,7 @@ export const CATEGORIES = {
     color: '#d4a374',
     estimatedMinutes: 5,
     active: true,
-    requiresMinReports: 2,
+    // requiresMinReports 제거 - 항상 활성화
   },
 };
 
@@ -122,7 +126,7 @@ export const PACKAGES = {
   },
 };
 
-// 카테고리 ID 배열 (표시 순서)
+// 카테고리 ID 배열 (표시 순서) - 연애 결을 가장 위에
 export const CATEGORY_ORDER = ['love', 'friend', 'career', 'work', 'burnout', 'integrated'];
 
 // 무료 카테고리만
