@@ -2030,26 +2030,9 @@ function SharedReportPage() {
   // 본인 결과인지 확인 (localStorage의 completed에 reportId 있으면 본인 것)
   const isOwner = getCompleted().some(c => c.reportId === id);
 
-  // 본인 결과면 전체 표시, 아니면 티저
+  // 본인 결과면 ReportView 재사용 (공유/저장/인스타카드/초대 전부 포함)
   if (isOwner) {
-    return (
-      <div className="min-h-screen overflow-y-auto">
-        <div className="max-w-xl mx-auto px-6 py-12 space-y-8">
-          <button onClick={() => navigate('/')} className="text-[#f5ebd7]/50 text-xs hover:text-[#f5ebd7]/80">← 처음</button>
-          <ReportHeader category={category} />
-          <HeadlineCard headline={report.headline} />
-          {category.id === 'love' && <LoveReportSections report={report} />}
-          {category.id === 'friend' && <FriendReportSections report={report} />}
-          {category.id === 'career' && <CareerReportSections report={report} />}
-          {category.id === 'work' && <WorkReportSections report={report} />}
-          {category.id === 'burnout' && <BurnoutReportSections report={report} />}
-          {category.id === 'integrated' && <IntegratedReportSections report={report} />}
-          <ClosingCard closing={report.closing} />
-          <NewServicesCard source="owner" />
-          <div className="pb-12" />
-        </div>
-      </div>
-    );
+    return <ReportView category={category} report={report} reportId={id} onReset={() => navigate('/')} />;
   }
 
   // 공유받은 사람용 티저
