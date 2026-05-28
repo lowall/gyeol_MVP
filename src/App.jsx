@@ -520,7 +520,9 @@ function CategoryCard({ category, reportId, onClick, onViewResult, delay }) {
 function CategoryFlow() {
   const { category } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const cat = CATEGORIES[category];
+  const isInvited = new URLSearchParams(location.search).get('invited') === category;
   
   const [stage, setStage] = useState('intro');
   const [messages, setMessages] = useState([]);
@@ -676,7 +678,7 @@ function CategoryFlow() {
   const resetAll = () => navigate('/');
 
   if (stage === 'payment') return <PaymentModal category={cat} onConfirm={() => { addPurchased(category); setStage('intro'); }} onCancel={resetAll} />;
-  if (stage === 'intro') return <CategoryIntro category={cat} onStart={startConversation} onBack={resetAll} />;
+  if (stage === 'intro') return <CategoryIntro category={cat} isInvited={isInvited} onStart={startConversation} onBack={resetAll} />;
   if (stage === 'chat') return <ChatView category={cat} messages={messages} input={input} setInput={setInput} isAiTyping={isAiTyping} sendMessage={sendMessage} scrollRef={scrollRef} inputRef={inputRef} error={error} onReset={resetAll} />;
   if (stage === 'generating') return <GeneratingView category={cat} reportReady={reportReady} onComplete={() => setStage('report')} />;
   if (stage === 'error_report') return <ErrorReportView onRetry={() => generateReport(messages)} onReset={resetAll} />;
@@ -684,17 +686,33 @@ function CategoryFlow() {
   return null;
 }
 
-function CategoryIntro({ category, onStart, onBack }) {
+function CategoryIntro({ category, isInvited, onStart, onBack }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center relative">
       <button onClick={onBack} className="absolute top-6 left-6 text-[#f5ebd7]/50 text-xs hover:text-[#f5ebd7]/80">← 처음</button>
       <div className="anim-fade-up">
         <div className="text-[#d4a374]/50 text-[10px] tracking-[0.5em] mb-4">{category.nameEn} · {category.hanja}</div>
         <div className="font-myeongjo text-7xl text-[#d4a374] mb-8 font-bold">{category.hanja}</div>
-        <h1 className="font-display italic text-3xl text-[#f5ebd7] mb-4">{category.name}</h1>
-        <p className="text-[#f5ebd7]/70 text-sm leading-relaxed max-w-xs mx-auto mb-12 font-myeongjo">
-          {category.description}
-        </p>
+        {isInvited ? (
+          <>
+            <div className="inline-block bg-[#d4a374]/15 border border-[#d4a374]/40 px-4 py-1.5 mb-5">
+              <span className="text-[#d4a374] text-xs font-myeongjo">친구가 너를 초대했어</span>
+            </div>
+            <h1 className="font-display italic text-3xl text-[#f5ebd7] mb-4">{category.name}</h1>
+            <p className="text-[#f5ebd7]/70 text-sm leading-relaxed max-w-xs mx-auto mb-4 font-myeongjo">
+              누군가 너의 {category.name}이 궁금했나봐.<br/>
+              {category.description}
+            </p>
+            <p className="text-[#d4a374]/80 text-xs mb-12 font-myeongjo">무료로 받아볼 수 있어</p>
+          </>
+        ) : (
+          <>
+            <h1 className="font-display italic text-3xl text-[#f5ebd7] mb-4">{category.name}</h1>
+            <p className="text-[#f5ebd7]/70 text-sm leading-relaxed max-w-xs mx-auto mb-12 font-myeongjo">
+              {category.description}
+            </p>
+          </>
+        )}
         <div className="text-[#f5ebd7]/50 text-xs mb-2 font-myeongjo">예상 소요 {category.estimatedMinutes}분</div>
         <button onClick={onStart}
           className="bg-[#d4a374] text-[#3a2840] px-12 py-4 font-medium tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
@@ -769,7 +787,28 @@ function PaymentModal({ category, onConfirm, onCancel }) {
 
 function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage, scrollRef, inputRef, error, onReset }) {
   const userMessageCount = messages.filter(m => m.role === 'user').length;
-  const progressPercent = Math.min(95, Math.round((userMessageCount / 15) * 100));
+  
+  // 카테고리별 예상 메시지 수 (충분한 깊이 도달하려면 필요한 양)
+  const TARGET_MESSAGES = {
+    love: 22,
+    friend: 18,
+    career: 16,
+    work: 16,
+    burnout: 14,
+    integrated: 10
+  };
+  const target = TARGET_MESSAGES[category.id] || 15;
+  
+  // 80%까지만 cap. 진짜 끝은 AI [READY_FOR_REPORT] 신호 기준.
+  const rawProgress = (userMessageCount / target) * 100;
+  const progressPercent = userMessageCount === 0 ? 0 : Math.min(80, Math.round(rawProgress));
+  
+  // 진행 단계
+  let stageLabel = '';
+  if (userMessageCount === 0) stageLabel = '';
+  else if (progressPercent < 25) stageLabel = '도입';
+  else if (progressPercent < 60) stageLabel = '본격';
+  else stageLabel = '마무리';
   
   return (
     <div className="min-h-screen flex flex-col max-w-2xl mx-auto">
@@ -780,9 +819,9 @@ function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage
             <div className="font-myeongjo text-[#d4a374] text-xl font-bold leading-none">{category.hanja}</div>
             <div className="text-[#d4a374]/50 text-[9px] tracking-[0.3em] mt-1">{category.nameEn}</div>
           </div>
-          <div className="w-10 text-right">
-            {userMessageCount > 0 && (
-              <span className="text-[#d4a374]/70 text-[10px] tracking-wider font-body">{progressPercent}%</span>
+          <div className="w-16 text-right">
+            {stageLabel && (
+              <span className="text-[#d4a374]/70 text-[10px] tracking-wider font-myeongjo">{stageLabel}</span>
             )}
           </div>
         </div>
@@ -912,6 +951,7 @@ function ReportView({ category, report, reportId, onReset }) {
         {category.id === 'integrated' && <IntegratedReportSections report={report} />}
         
         <ClosingCard closing={report.closing} />
+        <InviteCard category={category} />
         <VaultCTA onClick={() => setShowVaultModal(true)} />
         <CrossSellCard currentCategory={category.id} />
         <NewServicesCard source="owner" />
@@ -966,7 +1006,51 @@ function ClosingCard({ closing }) {
   );
 }
 
-// 보관함 CTA - 결과 페이지 끝에
+// 친구/연인 초대 카드
+function InviteCard({ category }) {
+  const [copied, setCopied] = useState(false);
+  // inviteLabel 있는 카테고리만 (연애, 친구)
+  if (!category.inviteLabel) return null;
+
+  const inviteUrl = `${window.location.origin}/c/${category.id}?invited=${category.id}`;
+  const inviteText = category.id === 'love'
+    ? `나 "결"에서 연애 패턴 분석받았는데 신기해. 너도 해봐!\n${inviteUrl}`
+    : `나 "결"에서 친구관계 분석받았어. 너도 해볼래?\n${inviteUrl}`;
+
+  const handleInvite = () => {
+    events.clickInvite(category.id);
+    if (navigator.share) {
+      navigator.share({ title: `결 - ${category.name}`, text: inviteText, url: inviteUrl }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(inviteText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-[#d4a374]/15 to-transparent border border-[#d4a374]/30 p-6 anim-fade-up" style={{ animationDelay: '710ms' }}>
+      <div className="text-center mb-4">
+        <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-2">INVITE</div>
+        <h2 className="font-display italic text-xl text-[#f5ebd7] mb-2">{category.inviteDesc}</h2>
+        <p className="text-[#f5ebd7]/60 text-xs font-myeongjo">
+          {category.id === 'love' ? '연인에게' : '친구에게'} 링크를 보내고 결을 받아보게 해요
+        </p>
+      </div>
+      <button onClick={handleInvite}
+        className="w-full bg-[#d4a374] text-[#3a2840] py-3 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors flex items-center justify-center gap-2">
+        {copied ? '링크 복사됐어! ✓' : (
+          <>
+            <span>{category.inviteLabel}</span>
+            <span>→</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// 친구/연인 초대 카드
 function VaultCTA({ onClick }) {
   const vault = getVaultInfo();
   return (
@@ -1500,7 +1584,7 @@ function CrossSellCard({ currentCategory }) {
 // ============= NEW SERVICES =============
 
 const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xkUQbX';
-const INSTAGRAM_URL = 'https://instagram.com/gyeol_kr';
+const INSTAGRAM_URL = 'https://instagram.com/gyeol_ur';
 
 function NewServicesCard({ source = 'owner' }) {
   return (
@@ -1535,13 +1619,211 @@ function NewServicesCard({ source = 'owner' }) {
           </div>
           <div className="flex-1 text-left">
             <div className="font-myeongjo text-[#f5ebd7] font-bold text-sm">인스타그램 팔로우</div>
-            <div className="text-[#f5ebd7]/60 text-[10px] font-myeongjo">@gyeol_kr</div>
+            <div className="text-[#f5ebd7]/60 text-[10px] font-myeongjo">@gyeol_ur</div>
           </div>
           <div className="text-[#d4a374]">→</div>
         </a>
       </div>
     </div>
   );
+}
+
+// ============= 인스타 카드 Canvas 생성 =============
+
+// 카테고리별 핵심 키워드 추출 (카드에 표시할 1-3개)
+function getCardKeywords(category, report) {
+  switch (category.id) {
+    case 'love':
+      return report.attachment_style?.type ? [report.attachment_style.type] : (report.real_type?.keywords || []).slice(0, 3);
+    case 'friend':
+      return report.role_type?.keywords?.slice(0, 3) || [];
+    case 'career':
+      return report.real_block?.type ? [report.real_block.type] : [];
+    case 'work':
+      return report.core_strength?.evidence?.slice(0, 3) || [];
+    case 'burnout':
+      return report.burnout_type?.type ? [report.burnout_type.type] : [];
+    case 'integrated':
+      return report.core_identity?.title ? [report.core_identity.title] : [];
+    default:
+      return [];
+  }
+}
+
+function drawCardBase(ctx, w, h) {
+  // 배경 그라데이션
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, '#3a2840');
+  grad.addColorStop(1, '#4d3656');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  // 미묘한 텍스처 점들
+  ctx.fillStyle = 'rgba(212, 163, 116, 0.04)';
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.random() * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function wrapText(ctx, text, maxWidth) {
+  const chars = text.split('');
+  const lines = [];
+  let line = '';
+  for (const ch of chars) {
+    if (ctx.measureText(line + ch).width > maxWidth && line) {
+      lines.push(line);
+      line = ch;
+    } else {
+      line += ch;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function renderStoryCard(category, report) {
+  const w = 1080, h = 1920;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  drawCardBase(ctx, w, h);
+
+  const cx = w / 2;
+  
+  // 상단 GYEOL · 結
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(212, 163, 116, 0.5)';
+  ctx.font = '32px Inter, sans-serif';
+  ctx.fillText('G Y E O L  ·  結', cx, 220);
+
+  // 큰 한자
+  ctx.fillStyle = '#d4a374';
+  ctx.font = 'bold 360px "Nanum Myeongjo", serif';
+  ctx.fillText(category.hanja, cx, 700);
+
+  // 카테고리명
+  ctx.fillStyle = 'rgba(245, 235, 215, 0.6)';
+  ctx.font = '40px "Nanum Myeongjo", serif';
+  ctx.fillText(category.name, cx, 800);
+
+  // 구분선
+  ctx.strokeStyle = 'rgba(212, 163, 116, 0.4)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 120, 880);
+  ctx.lineTo(cx + 120, 880);
+  ctx.stroke();
+
+  // 헤드라인 (큰 텍스트, 줄바꿈)
+  ctx.fillStyle = '#f5ebd7';
+  ctx.font = 'bold 64px "Nanum Myeongjo", serif';
+  const headline = report.headline || '';
+  const lines = wrapText(ctx, headline, w - 200);
+  let y = 1050;
+  lines.forEach(ln => {
+    ctx.fillText(ln, cx, y);
+    y += 90;
+  });
+
+  // 키워드 pills
+  const keywords = getCardKeywords(category, report);
+  if (keywords.length) {
+    y += 60;
+    ctx.font = '36px "Nanum Myeongjo", serif';
+    const gap = 30;
+    const pillH = 80;
+    const widths = keywords.map(k => ctx.measureText(k).width + 80);
+    const totalW = widths.reduce((a, b) => a + b, 0) + gap * (keywords.length - 1);
+    let x = cx - totalW / 2;
+    keywords.forEach((k, i) => {
+      const pw = widths[i];
+      ctx.fillStyle = 'rgba(212, 163, 116, 0.15)';
+      ctx.strokeStyle = 'rgba(212, 163, 116, 0.4)';
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y - pillH / 2, pw, pillH, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#d4a374';
+      ctx.textAlign = 'center';
+      ctx.fillText(k, x + pw / 2, y + 13);
+      x += pw + gap;
+    });
+  }
+
+  // 하단 CTA
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(245, 235, 215, 0.5)';
+  ctx.font = '38px "Nanum Myeongjo", serif';
+  ctx.fillText('나의 결을 읽다', cx, h - 280);
+  ctx.fillStyle = '#d4a374';
+  ctx.font = 'bold 44px Inter, sans-serif';
+  ctx.fillText('gyeol-mvp.vercel.app', cx, h - 200);
+
+  return canvas;
+}
+
+function renderPostCard(category, report) {
+  const size = 1080;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  drawCardBase(ctx, size, size);
+
+  const cx = size / 2;
+  
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(212, 163, 116, 0.5)';
+  ctx.font = '28px Inter, sans-serif';
+  ctx.fillText('G Y E O L  ·  結', cx, 130);
+
+  // 한자
+  ctx.fillStyle = '#d4a374';
+  ctx.font = 'bold 200px "Nanum Myeongjo", serif';
+  ctx.fillText(category.hanja, cx, 380);
+
+  ctx.fillStyle = 'rgba(245, 235, 215, 0.6)';
+  ctx.font = '34px "Nanum Myeongjo", serif';
+  ctx.fillText(category.name, cx, 450);
+
+  ctx.strokeStyle = 'rgba(212, 163, 116, 0.4)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 100, 510);
+  ctx.lineTo(cx + 100, 510);
+  ctx.stroke();
+
+  // 헤드라인
+  ctx.fillStyle = '#f5ebd7';
+  ctx.font = 'bold 52px "Nanum Myeongjo", serif';
+  const lines = wrapText(ctx, report.headline || '', size - 160);
+  let y = 640;
+  lines.forEach(ln => {
+    ctx.fillText(ln, cx, y);
+    y += 72;
+  });
+
+  // 하단
+  ctx.fillStyle = 'rgba(245, 235, 215, 0.5)';
+  ctx.font = '30px "Nanum Myeongjo", serif';
+  ctx.fillText('나의 결을 읽다', cx, size - 130);
+  ctx.fillStyle = '#d4a374';
+  ctx.font = 'bold 36px Inter, sans-serif';
+  ctx.fillText('gyeol-mvp.vercel.app', cx, size - 75);
+
+  return canvas;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 // ============= SHARE MODAL =============
@@ -1601,6 +1883,29 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
     setBusy(false);
   };
 
+  // 인스타용 결 카드 생성 (Canvas)
+  const downloadCard = async (type) => {
+    setBusy(true);
+    events.downloadImage(category.id, type);
+    try {
+      if (document.fonts?.ready) await document.fonts.ready;
+      const canvas = type === 'story' ? renderStoryCard(category, report) : renderPostCard(category, report);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png', 1));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `결-${category.name}-${type === 'story' ? '스토리' : '게시물'}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert('이미지 생성 실패. 다시 시도해줘');
+    }
+    setBusy(false);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="bg-[#3a2840] border-t sm:border border-[#d4a374]/30 w-full sm:max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1633,6 +1938,22 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
             </div>
           )}
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">DOWNLOAD</div>
+          <button onClick={() => downloadCard('story')} disabled={busy}
+            className="w-full bg-gradient-to-r from-purple-500/15 via-pink-500/15 to-orange-500/15 border border-[#d4a374]/30 hover:border-[#d4a374]/50 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-50">
+            <div className="text-2xl">📱</div>
+            <div className="flex-1 text-left">
+              <div className="text-[#f5ebd7] text-sm font-bold font-myeongjo">인스타 스토리 카드</div>
+              <div className="text-[#f5ebd7]/50 text-[10px] font-myeongjo">{busy ? '생성 중...' : '9:16 세로 이미지'}</div>
+            </div>
+          </button>
+          <button onClick={() => downloadCard('post')} disabled={busy}
+            className="w-full bg-gradient-to-r from-purple-500/15 via-pink-500/15 to-orange-500/15 border border-[#d4a374]/30 hover:border-[#d4a374]/50 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-50">
+            <div className="text-2xl">🖼️</div>
+            <div className="flex-1 text-left">
+              <div className="text-[#f5ebd7] text-sm font-bold font-myeongjo">인스타 게시물 카드</div>
+              <div className="text-[#f5ebd7]/50 text-[10px] font-myeongjo">{busy ? '생성 중...' : '1:1 정사각 이미지'}</div>
+            </div>
+          </button>
           <button onClick={downloadFullImage} disabled={busy}
             className="w-full bg-[#f5ebd7]/5 border border-[#d4a374]/20 hover:bg-[#f5ebd7]/10 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-50">
             <div className="text-2xl">⬇</div>
