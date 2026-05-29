@@ -15,13 +15,14 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { email, reportId, category } = req.body;
+    const { email, reportId, category, resendOnly } = req.body;
 
     // 이메일 유효성 검사
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Invalid email' });
     }
-    if (!reportId) {
+    // 일반 모드는 reportId 필수, resendOnly는 불필요
+    if (!resendOnly && !reportId) {
       return res.status(400).json({ error: 'Missing reportId' });
     }
 
@@ -34,8 +35,16 @@ export default async function handler(req, res) {
     
     let userId;
     let isNew = false;
+    let isResend = false;
     
-    if (snapshot.empty) {
+    if (resendOnly) {
+      // 링크 재발송 모드 - vault가 반드시 있어야 함
+      if (snapshot.empty) {
+        return res.status(404).json({ error: 'Vault not found for this email' });
+      }
+      userId = snapshot.docs[0].id;
+      isResend = true;
+    } else if (snapshot.empty) {
       // 신규: 새 vault 생성
       userId = nanoid(12);
       isNew = true;
@@ -66,8 +75,11 @@ export default async function handler(req, res) {
     const vaultUrl = `${baseUrl}/my/${userId}`;
     
     try {
-      const emailHtml = generateEmailHTML(vaultUrl, isNew);
-      await sendEmail(normalizedEmail, isNew ? '🌙 너의 결 보관함이 만들어졌어' : '🌙 너의 결 보관함에 새 결이 추가됐어', emailHtml);
+      const emailHtml = generateEmailHTML(vaultUrl, isNew, isResend);
+      const subject = isResend 
+        ? '🌙 너의 결 보관함 링크' 
+        : (isNew ? '🌙 너의 결 보관함이 만들어졌어' : '🌙 너의 결 보관함에 새 결이 추가됐어');
+      await sendEmail(normalizedEmail, subject, emailHtml);
     } catch (emailErr) {
       console.error('Email send failed:', emailErr);
       // 이메일 실패해도 vault는 생성됐으니 OK 반환
@@ -77,6 +89,7 @@ export default async function handler(req, res) {
       userId, 
       vaultUrl,
       isNew,
+      isResend,
       success: true,
     });
   } catch (err) {
@@ -108,7 +121,19 @@ async function sendEmail(to, subject, html) {
   return data;
 }
 
-function generateEmailHTML(vaultUrl, isNew) {
+function generateEmailHTML(vaultUrl, isNew, isResend) {
+  let title, subtitle;
+  if (isResend) {
+    title = '결 보관함 링크예요';
+    subtitle = '요청하신 보관함 링크를 다시 보내드려요.<br/>이 링크를 북마크해두면 언제든 다시 와서 볼 수 있어요.';
+  } else if (isNew) {
+    title = '결 보관함이 만들어졌어요';
+    subtitle = '너의 모든 결을 한 곳에서 영구히 볼 수 있어요.<br/>이 링크를 북마크해두면 언제든 다시 와서 볼 수 있어요.';
+  } else {
+    title = '새 결이 추가됐어요';
+    subtitle = '새로 받은 결이 보관함에 저장됐어요.<br/>아래 링크로 모든 결을 볼 수 있어요.';
+  }
+  
   return `
 <!DOCTYPE html>
 <html lang="ko">
@@ -128,12 +153,8 @@ function generateEmailHTML(vaultUrl, isNew) {
 <body>
   <div class="container">
     <div class="hanja">結</div>
-    <div class="title">${isNew ? '결 보관함이 만들어졌어요' : '새 결이 추가됐어요'}</div>
-    <div class="subtitle">
-      ${isNew 
-        ? '너의 모든 결을 한 곳에서 영구히 볼 수 있어요.<br/>이 링크를 북마크해두면 언제든 다시 와서 볼 수 있어요.' 
-        : '새로 받은 결이 보관함에 저장됐어요.<br/>아래 링크로 모든 결을 볼 수 있어요.'}
-    </div>
+    <div class="title">${title}</div>
+    <div class="subtitle">${subtitle}</div>
     <a href="${vaultUrl}" class="button">내 보관함 열기 →</a>
     <div class="subtitle" style="font-size: 12px; margin-top: 24px;">
       또는 아래 링크를 클릭하세요:<br/>
