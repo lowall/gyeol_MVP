@@ -35,12 +35,12 @@ async function saveReport(report, category) {
   }
 }
 
-async function saveToVault(email, reportId, category) {
+async function saveToVault(email, reportId, category, resendOnly = false) {
   try {
     const res = await fetch('/api/save-to-vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, reportId, category }),
+      body: JSON.stringify({ email, reportId, category, resendOnly }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -2031,9 +2031,25 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultSuccess, setVaultSuccess] = useState(false);
   const [vaultError, setVaultError] = useState(null);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
   const shareUrl = reportId ? `${window.location.origin}/r/${reportId}` : null;
   
   const existingVault = getVaultInfo();
+
+  const handleResendLink = async () => {
+    if (!existingVault?.email) return;
+    setResending(true);
+    setResent(false);
+    try {
+      await saveToVault(existingVault.email, null, null, true);
+      setResent(true);
+      setTimeout(() => setResent(false), 4000);
+    } catch (err) {
+      alert('재발송 실패. 잠시 후 다시 시도해줘');
+    }
+    setResending(false);
+  };
 
   const copyLink = () => {
     if (!shareUrl) return;
@@ -2236,20 +2252,30 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
               <div className="font-myeongjo text-[#f5ebd7] font-bold text-sm mb-1">
                 보관함이 만들어졌어요
               </div>
-              <div className="text-[#f5ebd7]/70 text-xs font-myeongjo">
+              <div className="text-[#f5ebd7]/70 text-xs font-myeongjo mb-3">
                 <strong className="text-[#d4a374]">{vaultEmail}</strong> 로 링크를 보냈어요
               </div>
+              <button onClick={handleResendLink} disabled={resending}
+                className="text-[#d4a374] text-xs hover:text-[#e8c192] underline disabled:opacity-50">
+                {resending ? '발송 중...' : (resent ? '링크 다시 보냈어요 ✓' : '이메일이 안 왔어요? 다시 보내기')}
+              </button>
             </div>
           )}
           
           {/* 기존 보관함 있으면 */}
           {existingVault?.userId && !vaultSuccess && (
-            <div className="bg-[#d4a374]/8 border border-[#d4a374]/30 p-3 mb-5 flex items-center justify-between">
-              <div>
-                <div className="text-[#d4a374] text-[10px] tracking-wider mb-0.5">MY VAULT</div>
-                <div className="text-[#f5ebd7]/80 text-xs font-myeongjo">이 결도 보관함에 추가됐어요</div>
+            <div className="bg-[#d4a374]/8 border border-[#d4a374]/30 p-3 mb-5">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-[#d4a374] text-[10px] tracking-wider mb-0.5">MY VAULT</div>
+                  <div className="text-[#f5ebd7]/80 text-xs font-myeongjo">이 결도 보관함에 추가됐어요</div>
+                </div>
+                <a href={`/my/${existingVault.userId}`} className="text-[#d4a374] text-xs hover:underline">보러가기 →</a>
               </div>
-              <a href={`/my/${existingVault.userId}`} className="text-[#d4a374] text-xs hover:underline">보러가기 →</a>
+              <button onClick={handleResendLink} disabled={resending}
+                className="w-full mt-2 bg-[#d4a374]/15 hover:bg-[#d4a374]/25 border border-[#d4a374]/30 py-2 text-[#d4a374] text-xs transition disabled:opacity-50">
+                {resending ? '발송 중...' : (resent ? '이메일 보냈어요 ✓' : '📧 보관함 링크 이메일로 다시 받기')}
+              </button>
             </div>
           )}
 
