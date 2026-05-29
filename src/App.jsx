@@ -952,7 +952,6 @@ function ReportView({ category, report, reportId, onReset }) {
         
         <ClosingCard closing={report.closing} />
         <InviteCard category={category} />
-        <VaultCTA onClick={() => setShowVaultModal(true)} />
         <CrossSellCard currentCategory={category.id} />
         <NewServicesCard source="owner" />
       </div>
@@ -1826,13 +1825,215 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// 카테고리별 전체 보고서를 텍스트로 빌드 (복사용)
+function buildReportText(category, report) {
+  const lines = [];
+  lines.push(`결 GYEOL · ${category.name}`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push(`"${report.headline}"`);
+  lines.push('');
+  
+  if (category.id === 'love') {
+    if (report.real_type) {
+      lines.push(`▸ ${report.real_type.title || '진짜 유형'}`);
+      if (report.real_type.keywords) lines.push(`  ${report.real_type.keywords.join(' · ')}`);
+      if (report.real_type.content) lines.push(`  ${report.real_type.content}`);
+      lines.push('');
+    }
+    if (report.patterns?.length) {
+      lines.push('▸ 패턴');
+      report.patterns.forEach(p => {
+        lines.push(`  · ${p.title}: ${p.content}`);
+      });
+      lines.push('');
+    }
+    if (report.attachment_style) {
+      lines.push(`▸ 애착 유형: ${report.attachment_style.type} (${report.attachment_style.percentage}%)`);
+      if (report.attachment_style.reason) lines.push(`  ${report.attachment_style.reason}`);
+      lines.push('');
+    }
+    if (report.next_person) {
+      lines.push(`▸ ${report.next_person.title || '다음 사람'}`);
+      if (report.next_person.traits) lines.push(`  ${report.next_person.traits.join(' · ')}`);
+      if (report.next_person.content) lines.push(`  ${report.next_person.content}`);
+      lines.push('');
+    }
+    if (report.avoid) {
+      lines.push(`▸ ${report.avoid.title || '피해야 할 사람'}`);
+      if (report.avoid.warnings) lines.push(`  ${report.avoid.warnings.join(' · ')}`);
+      if (report.avoid.content) lines.push(`  ${report.avoid.content}`);
+      lines.push('');
+    }
+  } else if (category.id === 'friend') {
+    if (report.role_type) {
+      lines.push(`▸ ${report.role_type.title || '너의 역할'}`);
+      if (report.role_type.keywords) lines.push(`  ${report.role_type.keywords.join(' · ')}`);
+      if (report.role_type.content) lines.push(`  ${report.role_type.content}`);
+      lines.push('');
+    }
+    if (report.patterns?.length) {
+      lines.push('▸ 패턴');
+      report.patterns.forEach(p => lines.push(`  · ${p.title}: ${p.content}`));
+      lines.push('');
+    }
+    if (report.wound_pattern) {
+      lines.push(`▸ 상처 패턴: ${report.wound_pattern.title || ''}`);
+      if (report.wound_pattern.content) lines.push(`  ${report.wound_pattern.content}`);
+      lines.push('');
+    }
+    if (report.real_need) {
+      lines.push(`▸ 진짜 필요: ${report.real_need.title || ''}`);
+      if (report.real_need.keywords) lines.push(`  ${report.real_need.keywords.join(' · ')}`);
+      if (report.real_need.content) lines.push(`  ${report.real_need.content}`);
+      lines.push('');
+    }
+    if (report.action?.steps?.length) {
+      lines.push('▸ 행동');
+      report.action.steps.forEach((s, i) => lines.push(`  ${i+1}. ${s}`));
+      lines.push('');
+    }
+  } else if (category.id === 'career') {
+    if (report.current_state) {
+      lines.push(`▸ 현재 상태: ${report.current_state.title || ''} (에너지 ${report.current_state.energy_level}%)`);
+      if (report.current_state.diagnosis) lines.push(`  ${report.current_state.diagnosis}`);
+      if (report.current_state.content) lines.push(`  ${report.current_state.content}`);
+      lines.push('');
+    }
+    if (report.real_block) {
+      lines.push(`▸ 진짜 막힘: ${report.real_block.title || ''}`);
+      if (report.real_block.type) lines.push(`  유형: ${report.real_block.type}`);
+      if (report.real_block.content) lines.push(`  ${report.real_block.content}`);
+      lines.push('');
+    }
+    if (report.hidden_desire) {
+      lines.push(`▸ 숨은 욕망: ${report.hidden_desire.title || ''}`);
+      if (report.hidden_desire.content) lines.push(`  ${report.hidden_desire.content}`);
+      lines.push('');
+    }
+    if (report.next_step) {
+      lines.push(`▸ 다음 한 걸음: ${report.next_step.title || ''}`);
+      if (report.next_step.content) lines.push(`  ${report.next_step.content}`);
+      if (report.next_step.concrete_actions) {
+        ['이번 주', '이번 달', '올해'].forEach((label, i) => {
+          if (report.next_step.concrete_actions[i]) {
+            lines.push(`  · ${label}: ${report.next_step.concrete_actions[i]}`);
+          }
+        });
+      }
+      lines.push('');
+    }
+  } else if (category.id === 'work') {
+    if (report.core_strength) {
+      lines.push(`▸ 핵심 강점: ${report.core_strength.title || ''}`);
+      if (report.core_strength.evidence) lines.push(`  ${report.core_strength.evidence.join(' · ')}`);
+      if (report.core_strength.content) lines.push(`  ${report.core_strength.content}`);
+      lines.push('');
+    }
+    if (report.work_style) {
+      lines.push(`▸ 일 스타일: ${report.work_style.title || ''}`);
+      if (report.work_style.preferred_env) lines.push(`  선호 환경: ${report.work_style.preferred_env}`);
+      if (report.work_style.decision_style) lines.push(`  결정 방식: ${report.work_style.decision_style}`);
+      if (report.work_style.energy_source) lines.push(`  에너지: ${report.work_style.energy_source}`);
+      if (report.work_style.content) lines.push(`  ${report.work_style.content}`);
+      lines.push('');
+    }
+    if (report.fit_roles) {
+      lines.push(`▸ 맞는 직무: ${report.fit_roles.title || ''}`);
+      if (report.fit_roles.roles) lines.push(`  ${report.fit_roles.roles.join(' · ')}`);
+      if (report.fit_roles.content) lines.push(`  ${report.fit_roles.content}`);
+      lines.push('');
+    }
+    if (report.cover_letter_hooks?.items?.length) {
+      lines.push('▸ 자소서 후크');
+      report.cover_letter_hooks.items.forEach(item => {
+        lines.push(`  · [${item.topic}] ${item.key_phrase}`);
+        if (item.example) lines.push(`    "${item.example}"`);
+      });
+      lines.push('');
+    }
+  } else if (category.id === 'burnout') {
+    if (report.burnout_level) {
+      lines.push(`▸ 번아웃 수준: ${report.burnout_level.level} (${report.burnout_level.score}점)`);
+      if (report.burnout_level.content) lines.push(`  ${report.burnout_level.content}`);
+      lines.push('');
+    }
+    if (report.burnout_type) {
+      lines.push(`▸ 유형: ${report.burnout_type.type || ''}`);
+      if (report.burnout_type.content) lines.push(`  ${report.burnout_type.content}`);
+      lines.push('');
+    }
+    if (report.three_axes) {
+      lines.push('▸ MBI 3축');
+      ['emotional_exhaustion', 'depersonalization', 'reduced_accomplishment'].forEach(k => {
+        const a = report.three_axes[k];
+        if (a) lines.push(`  · ${a.label}: ${a.score}점 — ${a.description}`);
+      });
+      lines.push('');
+    }
+    if (report.immediate_needs?.items?.length) {
+      lines.push('▸ 지금 필요한 것');
+      report.immediate_needs.items.forEach(item => {
+        lines.push(`  · [${item.area}] ${item.action} — ${item.why}`);
+      });
+      lines.push('');
+    }
+  } else if (category.id === 'integrated') {
+    if (report.core_identity) {
+      lines.push(`▸ 핵심 정체성: ${report.core_identity.title || ''}`);
+      if (report.core_identity.content) lines.push(`  ${report.core_identity.content}`);
+      lines.push('');
+    }
+    if (report.thread) {
+      lines.push(`▸ 관통하는 패턴: ${report.thread.title || ''}`);
+      if (report.thread.pattern) lines.push(`  "${report.thread.pattern}"`);
+      if (report.thread.content) lines.push(`  ${report.thread.content}`);
+      lines.push('');
+    }
+    if (report.life_compass) {
+      lines.push(`▸ 인생 나침반`);
+      if (report.life_compass.north) lines.push(`  ↑ 지향: ${report.life_compass.north}`);
+      if (report.life_compass.south) lines.push(`  ↓ 회피: ${report.life_compass.south}`);
+      if (report.life_compass.east) lines.push(`  → 쌓기: ${report.life_compass.east}`);
+      if (report.life_compass.west) lines.push(`  ← 내려놓기: ${report.life_compass.west}`);
+      lines.push('');
+    }
+    if (report.next_chapter) {
+      lines.push(`▸ 다음 챕터: ${report.next_chapter.title || ''}`);
+      if (report.next_chapter.content) lines.push(`  ${report.next_chapter.content}`);
+      lines.push('');
+    }
+  }
+  
+  // 클로징
+  if (report.closing) {
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    lines.push(report.closing);
+    lines.push('');
+  }
+  
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('나의 결을 읽다');
+  lines.push('https://gyeol-mvp.vercel.app');
+  lines.push(`#결 #GYEOL #${category.nameEn}`);
+  
+  return lines.join('\n');
+}
+
 // ============= SHARE MODAL =============
 
 function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
   const [busy, setBusy] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
+  const [showVaultForm, setShowVaultForm] = useState(false);
+  const [vaultEmail, setVaultEmail] = useState('');
+  const [vaultLoading, setVaultLoading] = useState(false);
+  const [vaultSuccess, setVaultSuccess] = useState(false);
+  const [vaultError, setVaultError] = useState(null);
   const shareUrl = reportId ? `${window.location.origin}/r/${reportId}` : null;
+  
+  const existingVault = getVaultInfo();
 
   const copyLink = () => {
     if (!shareUrl) return;
@@ -1853,11 +2054,29 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
   };
 
   const copyText = () => {
-    let text = `[${category.name}]\n\n"${report.headline}"\n\nhttps://gyeol-mvp.vercel.app\n#결 #GYEOL #${category.nameEn}`;
+    const text = buildReportText(category, report);
     navigator.clipboard.writeText(text);
     events.copyText(category.id);
     setCopiedText(true);
     setTimeout(() => setCopiedText(false), 2000);
+  };
+
+  const handleVaultSubmit = async () => {
+    if (!vaultEmail.trim() || !reportId) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(vaultEmail)) {
+      setVaultError('올바른 이메일을 입력해줘');
+      return;
+    }
+    setVaultLoading(true);
+    setVaultError(null);
+    try {
+      const data = await saveToVault(vaultEmail.trim(), reportId, category.id);
+      saveVaultInfo({ email: vaultEmail.trim(), userId: data.userId });
+      setVaultSuccess(true);
+    } catch (err) {
+      setVaultError(err.message || '저장 실패. 잠시 후 다시 시도해줘');
+    }
+    setVaultLoading(false);
   };
 
   const downloadFullImage = async () => {
@@ -1867,15 +2086,37 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
     try {
       if (document.fonts?.ready) await document.fonts.ready;
       const canvas = await html2canvas(reportContentRef.current, { backgroundColor: '#3a2840', scale: 2, useCORS: true, logging: false });
-      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${category.name}-결과.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const filename = `${category.name}-결과.png`;
+      
+      if (isInAppBrowser()) {
+        const dataUrl = canvas.toDataURL('image/png');
+        const win = window.open('');
+        if (win) {
+          win.document.write(`
+            <html>
+              <head><title>${filename}</title>
+                <style>body{margin:0;background:#000;display:flex;justify-content:center;font-family:sans-serif}img{max-width:100%;height:auto}p{color:#fff;text-align:center;padding:20px;font-size:14px;position:fixed;top:0;left:0;right:0;background:rgba(0,0,0,0.7)}</style>
+              </head>
+              <body>
+                <p>📱 이미지를 길게 눌러 저장하세요</p>
+                <img src="${dataUrl}" alt="${filename}" style="margin-top:60px" />
+              </body>
+            </html>
+          `);
+        } else {
+          alert('카카오톡에서는 다운로드가 안 돼요. 우상단 ⋯ → "다른 브라우저로 열기"로 다시 시도해주세요.');
+        }
+      } else {
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       console.error(err);
       alert('이미지 생성 실패. 다시 시도해줘');
@@ -1883,22 +2124,52 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
     setBusy(false);
   };
 
-  // 인스타용 결 카드 생성 (Canvas)
+  // 인앱브라우저 감지
+  const isInAppBrowser = () => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent.toLowerCase();
+    return /kakaotalk|instagram|fban|fbav|line/.test(ua);
+  };
+
   const downloadCard = async (type) => {
     setBusy(true);
     events.downloadImage(category.id, type);
     try {
       if (document.fonts?.ready) await document.fonts.ready;
       const canvas = type === 'story' ? renderStoryCard(category, report) : renderPostCard(category, report);
-      const blob = await new Promise(r => canvas.toBlob(r, 'image/png', 1));
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `결-${category.name}-${type === 'story' ? '스토리' : '게시물'}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const dataUrl = canvas.toDataURL('image/png', 1);
+      const filename = `결-${category.name}-${type === 'story' ? '스토리' : '게시물'}.png`;
+      
+      if (isInAppBrowser()) {
+        // 카톡/인스타 인앱브라우저: 새 탭에 이미지만 띄움 (사용자가 길게 눌러 저장)
+        const win = window.open('');
+        if (win) {
+          win.document.write(`
+            <html>
+              <head><title>${filename}</title>
+                <style>body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:sans-serif}img{max-width:100%;height:auto}p{color:#fff;text-align:center;padding:20px;font-size:14px;position:fixed;top:10px;left:0;right:0;background:rgba(0,0,0,0.7)}</style>
+              </head>
+              <body>
+                <p>📱 이미지를 길게 눌러 저장하세요</p>
+                <img src="${dataUrl}" alt="${filename}" />
+              </body>
+            </html>
+          `);
+        } else {
+          alert('카카오톡에서는 다운로드가 안 돼요. 우상단 ⋯ → "다른 브라우저로 열기"로 다시 시도해주세요.');
+        }
+      } else {
+        // 일반 브라우저: 다운로드
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png', 1));
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       console.error(err);
       alert('이미지 생성 실패. 다시 시도해줘');
@@ -1917,6 +2188,71 @@ function ShareModal({ category, report, reportId, reportContentRef, onClose }) {
             </div>
             <button onClick={onClose} className="text-[#f5ebd7]/50 hover:text-[#f5ebd7]/90 text-2xl">×</button>
           </div>
+
+          {/* 🌟 보관함 섹션 - 가장 위에 강조 */}
+          {!existingVault?.userId && !vaultSuccess && (
+            <div className="bg-gradient-to-br from-[#d4a374]/20 to-[#d4a374]/5 border border-[#d4a374]/50 p-4 mb-5">
+              <div className="text-[#d4a374] text-[10px] tracking-[0.4em] mb-2">SAVE FOREVER</div>
+              <h3 className="font-myeongjo text-[#f5ebd7] font-bold text-base mb-2">
+                이메일로 받기 + 영구 보관
+              </h3>
+              <p className="text-[#f5ebd7]/70 text-xs font-myeongjo mb-3 leading-relaxed">
+                다른 기기에서도 볼 수 있고, 새 결도 자동으로 누적돼요.<br/>
+                <span className="text-[#d4a374]/80">1개월 무료 보관</span>
+              </p>
+              {!showVaultForm ? (
+                <button onClick={() => setShowVaultForm(true)}
+                  className="w-full bg-[#d4a374] text-[#3a2840] py-2.5 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors">
+                  이메일로 받기 →
+                </button>
+              ) : (
+                <div>
+                  <input type="email" value={vaultEmail} onChange={e => setVaultEmail(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleVaultSubmit(); }}
+                    placeholder="your@email.com"
+                    disabled={vaultLoading}
+                    autoFocus
+                    className="w-full bg-[#f5ebd7] border border-[#d4a374]/40 px-3 py-2 text-[#3a2840] placeholder-[#3a2840]/40 text-sm focus:outline-none focus:border-[#d4a374] mb-2 font-body" />
+                  {vaultError && <div className="text-red-300/80 text-xs mb-2 font-myeongjo">{vaultError}</div>}
+                  <div className="flex gap-2">
+                    <button onClick={handleVaultSubmit} disabled={vaultLoading || !vaultEmail.trim()}
+                      className="flex-1 bg-[#d4a374] text-[#3a2840] py-2 font-bold tracking-wider text-sm hover:bg-[#e8c192] transition-colors disabled:opacity-50">
+                      {vaultLoading ? '저장 중...' : '받기'}
+                    </button>
+                    <button onClick={() => { setShowVaultForm(false); setVaultEmail(''); setVaultError(null); }}
+                      className="px-4 text-[#f5ebd7]/60 hover:text-[#f5ebd7]/90 text-xs">
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* 보관함 가입 완료 안내 */}
+          {vaultSuccess && (
+            <div className="bg-[#d4a374]/15 border border-[#d4a374]/50 p-4 mb-5 text-center">
+              <div className="text-2xl mb-2">✨</div>
+              <div className="font-myeongjo text-[#f5ebd7] font-bold text-sm mb-1">
+                보관함이 만들어졌어요
+              </div>
+              <div className="text-[#f5ebd7]/70 text-xs font-myeongjo">
+                <strong className="text-[#d4a374]">{vaultEmail}</strong> 로 링크를 보냈어요
+              </div>
+            </div>
+          )}
+          
+          {/* 기존 보관함 있으면 */}
+          {existingVault?.userId && !vaultSuccess && (
+            <div className="bg-[#d4a374]/8 border border-[#d4a374]/30 p-3 mb-5 flex items-center justify-between">
+              <div>
+                <div className="text-[#d4a374] text-[10px] tracking-wider mb-0.5">MY VAULT</div>
+                <div className="text-[#f5ebd7]/80 text-xs font-myeongjo">이 결도 보관함에 추가됐어요</div>
+              </div>
+              <a href={`/my/${existingVault.userId}`} className="text-[#d4a374] text-xs hover:underline">보러가기 →</a>
+            </div>
+          )}
+
           <div className="text-[#d4a374]/70 text-[10px] tracking-[0.4em] mb-3">SHARE</div>
           <button onClick={shareLinkNative} disabled={!shareUrl}
             className="w-full bg-[#FEE500]/15 border border-[#FEE500]/40 hover:bg-[#FEE500]/25 transition p-4 mb-2 flex items-center gap-3 disabled:opacity-30">
