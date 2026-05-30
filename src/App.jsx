@@ -153,6 +153,71 @@ function extractProfileFromMessages(messages) {
   return profile;
 }
 
+// 채팅 세션 저장/불러오기 (진행 중인 채팅 복원용)
+const SESSION_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
+
+function getSessionKey(category) {
+  return `gyeol_session_${category}`;
+}
+
+function saveSession(category, messages) {
+  if (typeof window === 'undefined') return;
+  if (!messages || messages.length === 0) return;
+  try {
+    localStorage.setItem(getSessionKey(category), JSON.stringify({
+      messages,
+      savedAt: Date.now(),
+    }));
+  } catch (err) {
+    console.error('Session save failed:', err);
+  }
+}
+
+function loadSession(category) {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(getSessionKey(category));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // TTL 체크
+    if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
+      localStorage.removeItem(getSessionKey(category));
+      return null;
+    }
+    if (!Array.isArray(data.messages) || data.messages.length === 0) return null;
+    return data.messages;
+  } catch (err) {
+    console.error('Session load failed:', err);
+    return null;
+  }
+}
+
+function clearSession(category) {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(getSessionKey(category));
+}
+
+// 만료된 세션 자동 청소 (앱 로드 시 1번)
+function cleanupExpiredSessions() {
+  if (typeof window === 'undefined') return;
+  try {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('gyeol_session_')) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
+            localStorage.removeItem(key);
+          }
+        } catch {
+          localStorage.removeItem(key);
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Cleanup failed:', err);
+  }
+}
+
 // ============= STYLES =============
 
 const FontStyles = () => (
@@ -171,6 +236,10 @@ const FontStyles = () => (
 // ============= ROOT =============
 
 export default function App() {
+  useEffect(() => {
+    cleanupExpiredSessions();
+  }, []);
+  
   return (
     <BrowserRouter>
       <FontStyles />
@@ -532,6 +601,7 @@ function CategoryFlow() {
   const [reportId, setReportId] = useState(null);
   const [reportReady, setReportReady] = useState(false);
   const [error, setError] = useState(null);
+  const [resumedToast, setResumedToast] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -539,10 +609,27 @@ function CategoryFlow() {
     if (!cat) { navigate('/'); return; }
     if (!canAccess(category)) {
       setStage('payment');
+      return;
+    }
+    // 진행 중인 세션 있으면 자동 복원
+    const saved = loadSession(category);
+    if (saved && saved.length > 0) {
+      setMessages(saved);
+      setStage('chat');
+      setResumedToast(true);
+      setTimeout(() => setResumedToast(false), 3500);
+      setTimeout(() => inputRef.current?.focus(), 200);
     } else {
       setStage('intro');
     }
   }, [category]);
+
+  // 매번 메시지 바뀌면 자동 저장 (채팅 중일 때만)
+  useEffect(() => {
+    if (stage === 'chat' && messages.length > 0) {
+      saveSession(category, messages);
+    }
+  }, [messages, stage, category]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -668,6 +755,8 @@ function CategoryFlow() {
         }
       });
       setReportReady(true);
+      // 보고서 완성됐으니 세션 정리
+      clearSession(category);
     } catch (err) {
       console.error('Final fail:', err);
       events.reportError(category, 'final_failed');
@@ -677,9 +766,18 @@ function CategoryFlow() {
 
   const resetAll = () => navigate('/');
 
+  const handleRestart = () => {
+    if (!confirm('지금까지의 대화가 사라져요. 정말 처음부터 다시 시작할까요?')) return;
+    clearSession(category);
+    setMessages([]);
+    setInput('');
+    setError(null);
+    setStage('intro');
+  };
+
   if (stage === 'payment') return <PaymentModal category={cat} onConfirm={() => { addPurchased(category); setStage('intro'); }} onCancel={resetAll} />;
   if (stage === 'intro') return <CategoryIntro category={cat} isInvited={isInvited} onStart={startConversation} onBack={resetAll} />;
-  if (stage === 'chat') return <ChatView category={cat} messages={messages} input={input} setInput={setInput} isAiTyping={isAiTyping} sendMessage={sendMessage} scrollRef={scrollRef} inputRef={inputRef} error={error} onReset={resetAll} />;
+  if (stage === 'chat') return <ChatView category={cat} messages={messages} input={input} setInput={setInput} isAiTyping={isAiTyping} sendMessage={sendMessage} scrollRef={scrollRef} inputRef={inputRef} error={error} onReset={resetAll} onRestart={handleRestart} resumedToast={resumedToast} />;
   if (stage === 'generating') return <GeneratingView category={cat} reportReady={reportReady} onComplete={() => setStage('report')} />;
   if (stage === 'error_report') return <ErrorReportView onRetry={() => generateReport(messages)} onReset={resetAll} />;
   if (stage === 'report' && report) return <ReportView category={cat} report={report} reportId={reportId} onReset={resetAll} />;
@@ -785,7 +883,7 @@ function PaymentModal({ category, onConfirm, onCancel }) {
   );
 }
 
-function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage, scrollRef, inputRef, error, onReset }) {
+function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage, scrollRef, inputRef, error, onReset, onRestart, resumedToast }) {
   const userMessageCount = messages.filter(m => m.role === 'user').length;
   
   // 카테고리별 예상 메시지 수 (충분한 깊이 도달하려면 필요한 양)
@@ -819,15 +917,26 @@ function ChatView({ category, messages, input, setInput, isAiTyping, sendMessage
             <div className="font-myeongjo text-[#d4a374] text-xl font-bold leading-none">{category.hanja}</div>
             <div className="text-[#d4a374]/50 text-[9px] tracking-[0.3em] mt-1">{category.nameEn}</div>
           </div>
-          <div className="w-16 text-right">
+          <div className="w-20 text-right flex items-center justify-end gap-2">
             {stageLabel && (
               <span className="text-[#d4a374]/70 text-[10px] tracking-wider font-myeongjo">{stageLabel}</span>
+            )}
+            {onRestart && userMessageCount > 0 && (
+              <button onClick={onRestart} title="처음부터 다시 시작"
+                className="text-[#f5ebd7]/40 hover:text-[#f5ebd7]/80 transition text-base leading-none">
+                ↻
+              </button>
             )}
           </div>
         </div>
         {userMessageCount > 0 && (
           <div className="h-[1.5px] bg-[#d4a374]/15 relative overflow-hidden">
             <div className="absolute inset-y-0 left-0 bg-[#d4a374] transition-all duration-700 ease-out" style={{ width: `${progressPercent}%` }} />
+          </div>
+        )}
+        {resumedToast && (
+          <div className="bg-[#d4a374]/15 border-b border-[#d4a374]/30 px-6 py-2 text-center text-[#d4a374] text-xs font-myeongjo anim-fade-up">
+            이전 대화를 이어서 진행해요. 처음부터 다시 시작하려면 우측 ↻ 버튼을 눌러주세요.
           </div>
         )}
       </div>
@@ -2347,6 +2456,8 @@ function SharedReportPage() {
   const [category, setCategory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isOwner, setIsOwner] = useState(false);
+  const [ownershipChecked, setOwnershipChecked] = useState(false);
 
   useEffect(() => {
     fetch(`/api/get-report?id=${encodeURIComponent(id)}`)
@@ -2367,7 +2478,50 @@ function SharedReportPage() {
       .catch(err => { setError(err.message); setLoading(false); });
   }, [id]);
 
-  if (loading) return (
+  // 소유권 확인: localStorage 또는 vault 데이터 기반
+  useEffect(() => {
+    let cancelled = false;
+    
+    const checkOwnership = async () => {
+      // 1. localStorage의 completed에 있으면 본인 (같은 기기에서 받은 거)
+      if (getCompleted().some(c => c.reportId === id)) {
+        if (!cancelled) {
+          setIsOwner(true);
+          setOwnershipChecked(true);
+        }
+        return;
+      }
+      
+      // 2. vault 정보 있으면 vault API 호출해서 확인 (다른 기기에서 마법 링크로 온 경우)
+      const vault = getVaultInfo();
+      if (vault?.userId) {
+        try {
+          const res = await fetch(`/api/get-vault?userId=${encodeURIComponent(vault.userId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const hasReport = (data.reports || []).some(r => r.reportId === id);
+            if (!cancelled) {
+              setIsOwner(hasReport);
+              setOwnershipChecked(true);
+            }
+            return;
+          }
+        } catch (err) {
+          console.error('Vault check failed:', err);
+        }
+      }
+      
+      if (!cancelled) {
+        setIsOwner(false);
+        setOwnershipChecked(true);
+      }
+    };
+    
+    checkOwnership();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  if (loading || !ownershipChecked) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="font-myeongjo text-5xl text-[#d4a374] animate-pulse">結</div>
     </div>
@@ -2388,9 +2542,6 @@ function SharedReportPage() {
   );
 
   if (!report || !category) return null;
-
-  // 본인 결과인지 확인 (localStorage의 completed에 reportId 있으면 본인 것)
-  const isOwner = getCompleted().some(c => c.reportId === id);
 
   // 본인 결과면 ReportView 재사용 (공유/저장/인스타카드/초대 전부 포함)
   if (isOwner) {
